@@ -1,11 +1,12 @@
 from __future__ import annotations
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import QSize, Qt, Signal
 from PySide6.QtGui import QFontMetrics
 from PySide6.QtWidgets import QSizePolicy, QPushButton, QFrame, QListWidget, QListWidgetItem, QVBoxLayout, QWidget
 
 from portakal_app.models import CategoryDefinition
 from portakal_app.ui import i18n
+from portakal_app.ui.icons import get_widget_icon
 
 
 class SidebarCategoryList(QFrame):
@@ -27,6 +28,7 @@ class SidebarCategoryList(QFrame):
         self._list.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self._list.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self._list.setTextElideMode(Qt.TextElideMode.ElideNone)
+        self._list.setIconSize(QSize(20, 20))
         self._list.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self._list.currentItemChanged.connect(self._emit_selected_category)
         layout.addWidget(self._list)
@@ -47,6 +49,8 @@ class SidebarCategoryList(QFrame):
         for category in self._categories:
             item = QListWidgetItem(category.label)
             item.setData(Qt.ItemDataRole.UserRole, category.id)
+            if category.icon_name:
+                item.setIcon(get_widget_icon(category.icon_name))
             self._list.addItem(item)
             self._items_by_category[category.id] = item
         if current_category_id is not None:

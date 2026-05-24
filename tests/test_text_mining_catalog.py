@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+from pathlib import Path
 
 import pytest
 
@@ -11,7 +12,9 @@ pytest.importorskip("PySide6")
 from portakal_app.app import create_application
 from portakal_app.ui import i18n
 from portakal_app.ui.catalog import build_categories, build_widgets
+from portakal_app.ui.icons import get_widget_icon
 from portakal_app.ui.main_window import MainWindow
+from portakal_app.ui.shell.widget_catalog import WidgetCatalogButton
 from portakal_app.ui.screens.bag_of_words_screen import (
     BagOfWordsScreen,
     build_document_term_matrix,
@@ -59,6 +62,21 @@ PERSON_A_TEXT_MINING_WIDGETS = [
     ("text-bag-of-words", "Bag of Words", ("Corpus",), ("Data",)),
 ]
 
+PERSON_A_TEXT_MINING_ICON_NAMES = {
+    "text-corpus": "text_corpus",
+    "text-import-documents": "text_import_documents",
+    "text-create-corpus": "text_create_corpus",
+    "text-the-guardian": "text_the_guardian",
+    "text-ny-times": "text_ny_times",
+    "text-pubmed": "text_pubmed",
+    "text-twitter": "text_twitter",
+    "text-wikipedia": "text_wikipedia",
+    "text-preprocess": "text_preprocess",
+    "text-bag-of-words": "text_bag_of_words",
+}
+
+TEXT_MINING_ASSET_DIR = Path(__file__).resolve().parents[1] / "src" / "portakal_app" / "ui" / "assets"
+
 
 @pytest.fixture(scope="session")
 def app():
@@ -83,6 +101,16 @@ def test_text_mining_category_exists():
     assert categories["text-mining"].enabled is True
 
 
+def test_text_mining_category_has_icon(app):
+    categories = {category.id: category for category in build_categories()}
+    icon_name = categories["text-mining"].icon_name
+
+    assert [category.id for category in categories.values() if category.icon_name] == ["text-mining"]
+    assert icon_name == "text_mining"
+    assert (TEXT_MINING_ASSET_DIR / f"{icon_name}.svg").exists()
+    assert not get_widget_icon(icon_name).isNull()
+
+
 def test_text_mining_category_contains_exact_person_a_widgets():
     text_widgets = [widget for widget in build_widgets() if widget.category_id == "text-mining"]
 
@@ -98,6 +126,34 @@ def test_text_mining_widget_ids_are_unique():
     widget_ids = [widget.id for widget in widgets]
 
     assert len(widget_ids) == len(set(widget_ids))
+
+
+def test_text_mining_widgets_have_orange_like_svg_icons(app):
+    widgets = {widget.id: widget for widget in build_widgets()}
+
+    for widget_id, expected_icon_name in PERSON_A_TEXT_MINING_ICON_NAMES.items():
+        widget = widgets[widget_id]
+
+        assert widget.icon_name == expected_icon_name
+        assert (TEXT_MINING_ASSET_DIR / f"{widget.icon_name}.svg").exists()
+        assert not get_widget_icon(widget.icon_name).isNull()
+
+
+def test_sidebar_and_text_mining_catalog_render_icons(app):
+    window = MainWindow()
+    window._sidebar.set_current_category("text-mining")
+    app.processEvents()
+
+    category_item = window._sidebar._items_by_category["text-mining"]
+    cards = [
+        card
+        for card in window._catalog.findChildren(WidgetCatalogButton)
+        if card.widget_id in PERSON_A_TEXT_MINING_ICON_NAMES
+    ]
+
+    assert not category_item.icon().isNull()
+    assert len(cards) == 10
+    assert all(not card.icon().isNull() for card in cards)
 
 
 def test_text_mining_corpus_widget_uses_real_screen(app):

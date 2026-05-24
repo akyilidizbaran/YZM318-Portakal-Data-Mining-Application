@@ -115,6 +115,7 @@ class CategoryDefinition:
     id: str
     label: str
     enabled: bool = True
+    icon_name: str = ""
 
 
 @dataclass(frozen=True)
