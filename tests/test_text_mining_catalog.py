@@ -34,6 +34,16 @@ from portakal_app.ui.screens.create_corpus_screen import (
     make_document,
     preview_text,
 )
+from portakal_app.ui.screens.guardian_screen import (
+    GuardianDocument,
+    GuardianScreen,
+    build_guardian_search_url,
+    fallback_guardian_documents,
+    fetch_guardian_documents,
+    get_guardian_api_key,
+    parse_guardian_response,
+    summarize_documents as summarize_guardian_documents,
+)
 from portakal_app.ui.screens.import_documents_screen import (
     ImportDocumentsScreen,
     import_documents_from_paths,
@@ -313,6 +323,26 @@ def test_main_window_can_open_pubmed_widget(app):
     assert isinstance(window._workspace.current_widget(), PubMedScreen)
 
 
+def test_text_mining_guardian_widget_uses_real_screen(app):
+    widgets = {widget.id: widget for widget in build_widgets()}
+
+    screen = widgets["text-the-guardian"].screen_factory()
+
+    assert isinstance(screen, GuardianScreen)
+    assert not isinstance(screen, PlaceholderScreen)
+    assert widgets["text-the-guardian"].icon_name == "text_the_guardian"
+    assert screen._table.rowCount() > 0
+
+
+def test_main_window_can_open_guardian_widget(app):
+    window = MainWindow()
+
+    window._workspace.canvas.add_workflow_node("text-the-guardian")
+    window._show_widget("text-the-guardian")
+
+    assert isinstance(window._workspace.current_widget(), GuardianScreen)
+
+
 def test_other_text_mining_widgets_still_use_placeholder_screens(app):
     placeholder_count = 0
     for widget in build_widgets():
@@ -320,6 +350,7 @@ def test_other_text_mining_widgets_still_use_placeholder_screens(app):
             "text-corpus",
             "text-import-documents",
             "text-create-corpus",
+            "text-the-guardian",
             "text-pubmed",
             "text-wikipedia",
             "text-preprocess",
@@ -334,7 +365,7 @@ def test_other_text_mining_widgets_still_use_placeholder_screens(app):
         assert widget.description
         placeholder_count += 1
 
-    assert placeholder_count == 3
+    assert placeholder_count == 2
 
 
 def test_text_mining_widgets_register_expected_ports():
@@ -892,6 +923,164 @@ def test_pubmed_document_summary_counts_words():
 
 def test_pubmed_screen_empty_documents_are_safe(app):
     screen = PubMedScreen(documents=())
+    preview = screen.data_preview_snapshot()
+
+    assert screen._table.rowCount() == 0
+    assert preview["rows"] == []
+    assert "0 documents" in preview["summary"]
+
+
+def test_guardian_url_builder_uses_query_limit_section_and_api_key():
+    search_url = build_guardian_search_url(
+        "climate change",
+        "fake-key",
+        limit=3,
+        section="Technology",
+    )
+
+    assert search_url.startswith("https://content.guardianapis.com/search?")
+    assert "q=climate+change" in search_url
+    assert "page-size=3" in search_url
+    assert "show-fields=trailText" in search_url
+    assert "section=technology" in search_url
+    assert "api-key=fake-key" in search_url
+
+
+def test_guardian_parsers_handle_malformed_or_empty_payloads_safely():
+    assert parse_guardian_response(None) == ()
+    assert parse_guardian_response({"response": {"results": None}}) == ()
+    assert parse_guardian_response({"response": {"results": [{"fields": {"trailText": "missing title"}}]}}) == ()
+
+
+def test_guardian_parser_reads_static_json_payload():
+    payload = {
+        "response": {
+            "results": [
+                {
+                    "webTitle": "Text mining helps newsrooms",
+                    "sectionName": "Technology",
+                    "webPublicationDate": "2026-05-01T12:00:00Z",
+                    "fields": {
+                        "trailText": "<p>Text mining &amp; reporting can summarize article collections.</p>"
+                    },
+                }
+            ]
+        }
+    }
+
+    documents = parse_guardian_response(payload)
+
+    assert len(documents) == 1
+    assert documents[0].title == "Text mining helps newsrooms"
+    assert documents[0].source == "The Guardian"
+    assert documents[0].section == "Technology"
+    assert documents[0].publication_date == "2026-05-01T12:00:00Z"
+    assert documents[0].text == "Text mining & reporting can summarize article collections."
+    assert count_words(documents[0].text) == 8
+
+
+def test_guardian_missing_api_key_uses_fallback_without_crashing(monkeypatch):
+    monkeypatch.delenv("GUARDIAN_API_KEY", raising=False)
+    result = fetch_guardian_documents(
+        "climate",
+        api_key="",
+        fetch_json=lambda _url: pytest.fail("network should not be used"),
+    )
+
+    assert get_guardian_api_key() == ""
+    assert result.used_fallback is True
+    assert result.documents
+    assert result.documents[0].source == "The Guardian"
+
+
+def test_guardian_empty_query_uses_fallback_without_crashing():
+    result = fetch_guardian_documents(
+        "",
+        api_key="fake-key",
+        fetch_json=lambda _url: pytest.fail("network should not be used"),
+    )
+
+    assert result.used_fallback is True
+    assert result.documents
+    assert result.documents[0].source == "The Guardian"
+
+
+def test_guardian_fallback_documents_are_deterministic_and_non_empty():
+    first = fallback_guardian_documents("climate")
+    second = fallback_guardian_documents("climate")
+
+    assert first == second
+    assert len(first) == 3
+    assert all(
+        document.title
+        and document.source
+        and document.section
+        and document.publication_date
+        and document.text
+        for document in first
+    )
+    assert all(count_words(document.text) > 0 for document in first)
+
+
+def test_guardian_fetch_uses_static_payload_without_live_network():
+    requested_urls: list[str] = []
+
+    def fake_fetch_json(url: str):
+        requested_urls.append(url)
+        return {
+            "response": {
+                "results": [
+                    {
+                        "webTitle": "Climate data in the news",
+                        "sectionName": "Environment",
+                        "webPublicationDate": "2026-05-02T08:30:00Z",
+                        "fields": {"trailText": "Climate reporting uses datasets and text."},
+                    }
+                ]
+            }
+        }
+
+    result = fetch_guardian_documents(
+        "climate data",
+        limit=1,
+        section="environment",
+        api_key="fake-key",
+        fetch_json=fake_fetch_json,
+    )
+
+    assert result.used_fallback is False
+    assert len(result.documents) == 1
+    assert result.documents[0].title == "Climate data in the news"
+    assert result.documents[0].section == "Environment"
+    assert "section=environment" in requested_urls[0]
+
+
+def test_guardian_fetch_falls_back_on_empty_results_or_parse_failures():
+    result = fetch_guardian_documents(
+        "missing",
+        api_key="fake-key",
+        fetch_json=lambda _url: {"response": {"results": []}},
+    )
+
+    assert result.used_fallback is True
+    assert result.documents
+
+
+def test_guardian_document_summary_counts_words():
+    documents = (
+        GuardianDocument("First", "one two", "The Guardian", "News", "2026-01-01"),
+        GuardianDocument("Second", "three four five", "The Guardian", "News", "2026-01-02"),
+    )
+
+    summary = summarize_guardian_documents(documents)
+
+    assert summary.document_count == 2
+    assert summary.total_word_count == 5
+    assert summary.average_words_per_document == 2.5
+
+
+def test_guardian_screen_empty_documents_are_safe(app):
+    screen = GuardianScreen(documents=())
     preview = screen.data_preview_snapshot()
 
     assert screen._table.rowCount() == 0

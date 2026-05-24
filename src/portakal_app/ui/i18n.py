@@ -62,6 +62,7 @@ class I18nManager(QObject):
                 "Create Corpus": "Korpus Oluştur",
                 "Create a small text corpus manually.": "Küçük bir metin korpusunu elle oluştur.",
                 "The Guardian": "The Guardian",
+                "Fetch Guardian articles into a corpus.": "Guardian makalelerini bir korpusa aktar.",
                 "NY Times": "NY Times",
                 "PubMed": "PubMed",
                 "Fetch PubMed abstracts into a corpus.": "PubMed özetlerini bir korpusa aktar.",

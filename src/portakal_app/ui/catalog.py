@@ -12,6 +12,7 @@ from portakal_app.ui.screens.data_table_screen import DataTableScreen
 from portakal_app.ui.screens.datasets_screen import DatasetsScreen
 from portakal_app.ui.screens.edit_domain_screen import EditDomainScreen
 from portakal_app.ui.screens.file_screen import FileScreen
+from portakal_app.ui.screens.guardian_screen import GuardianScreen
 from portakal_app.ui.screens.import_documents_screen import ImportDocumentsScreen
 from portakal_app.ui.screens.paint_data_screen import PaintDataScreen
 from portakal_app.ui.screens.placeholder_screen import PlaceholderScreen
@@ -1232,8 +1233,8 @@ def build_widgets() -> list[WidgetDefinition]:
             "text-mining",
             i18n.t("The Guardian"),
             True,
-            _placeholder_factory("The Guardian", "Placeholder for The Guardian text source."),
-            i18n.t("Placeholder for The Guardian text source."),
+            GuardianScreen,
+            i18n.t("Fetch Guardian articles into a corpus."),
             "text_the_guardian",
             (),
             _outputs("Corpus"),
