@@ -29,6 +29,13 @@ from portakal_app.ui.screens.import_documents_screen import (
     is_supported_document_path,
 )
 from portakal_app.ui.screens.placeholder_screen import PlaceholderScreen
+from portakal_app.ui.screens.preprocess_text_screen import (
+    PreprocessOptions,
+    PreprocessTextScreen,
+    preprocess_documents,
+    preprocess_text,
+    summarize_preprocessing,
+)
 
 
 PERSON_A_TEXT_MINING_WIDGETS = [
@@ -143,6 +150,25 @@ def test_main_window_can_open_create_corpus_widget(app):
     assert isinstance(window._workspace.current_widget(), CreateCorpusScreen)
 
 
+def test_text_mining_preprocess_text_widget_uses_real_screen(app):
+    widgets = {widget.id: widget for widget in build_widgets()}
+
+    screen = widgets["text-preprocess"].screen_factory()
+
+    assert isinstance(screen, PreprocessTextScreen)
+    assert not isinstance(screen, PlaceholderScreen)
+    assert screen._table.rowCount() == 5
+
+
+def test_main_window_can_open_preprocess_text_widget(app):
+    window = MainWindow()
+
+    window._workspace.canvas.add_workflow_node("text-preprocess")
+    window._show_widget("text-preprocess")
+
+    assert isinstance(window._workspace.current_widget(), PreprocessTextScreen)
+
+
 def test_other_text_mining_widgets_still_use_placeholder_screens(app):
     placeholder_count = 0
     for widget in build_widgets():
@@ -150,6 +176,7 @@ def test_other_text_mining_widgets_still_use_placeholder_screens(app):
             "text-corpus",
             "text-import-documents",
             "text-create-corpus",
+            "text-preprocess",
         }:
             continue
 
@@ -160,7 +187,7 @@ def test_other_text_mining_widgets_still_use_placeholder_screens(app):
         assert widget.description
         placeholder_count += 1
 
-    assert placeholder_count == 7
+    assert placeholder_count == 6
 
 
 def test_text_mining_widgets_register_expected_ports():
@@ -244,6 +271,104 @@ def test_create_corpus_screen_adds_and_clears_documents(app):
 
     screen.clear_corpus()
 
+    assert screen._table.rowCount() == 0
+    assert screen.data_preview_snapshot()["rows"] == []
+
+
+def test_preprocess_text_lowercase_works():
+    assert preprocess_text(
+        "Hello WORLD",
+        lowercase=True,
+        remove_punctuation=False,
+        remove_numbers=False,
+        remove_stopwords=False,
+        normalize_whitespace=False,
+    ) == "hello world"
+
+
+def test_preprocess_text_remove_punctuation_works():
+    assert preprocess_text(
+        "Hello, world!",
+        lowercase=False,
+        remove_punctuation=True,
+        remove_numbers=False,
+        remove_stopwords=False,
+    ) == "Hello world"
+
+
+def test_preprocess_text_remove_numbers_works():
+    assert preprocess_text(
+        "Version 2 has 15 tests",
+        lowercase=False,
+        remove_punctuation=False,
+        remove_numbers=True,
+        remove_stopwords=False,
+    ) == "Version has tests"
+
+
+def test_preprocess_text_remove_extra_whitespace_works():
+    assert preprocess_text(
+        "  alpha\n\n beta\tgamma  ",
+        lowercase=False,
+        remove_punctuation=False,
+        remove_numbers=False,
+        remove_stopwords=False,
+        normalize_whitespace=True,
+    ) == "alpha beta gamma"
+
+
+def test_preprocess_text_stopword_removal_works():
+    assert preprocess_text(
+        "this is a useful document",
+        lowercase=True,
+        remove_punctuation=False,
+        remove_numbers=False,
+        remove_stopwords=True,
+    ) == "useful document"
+
+
+def test_preprocess_text_combined_options_work_together():
+    assert preprocess_text(
+        "This is 2024, A Test!",
+        lowercase=True,
+        remove_punctuation=True,
+        remove_numbers=True,
+        remove_stopwords=True,
+        normalize_whitespace=True,
+    ) == "test"
+
+
+def test_preprocess_text_empty_and_symbol_only_inputs_are_safe():
+    assert preprocess_text("") == ""
+    assert preprocess_text("!!!") == ""
+    assert preprocess_text("123 456", remove_punctuation=False, remove_numbers=True) == ""
+
+
+def test_preprocess_documents_and_summary_count_removed_words():
+    documents = (
+        CorpusDocument("First", "This is 2024, A Test!", "Manual"),
+        CorpusDocument("Second", "Useful words remain", "Manual"),
+    )
+    options = PreprocessOptions(remove_numbers=True, remove_stopwords=True)
+
+    processed = preprocess_documents(documents, options)
+    summary = summarize_preprocessing(documents, processed)
+
+    assert [document.text for document in processed] == ["test", "useful words remain"]
+    assert summary.document_count == 2
+    assert summary.total_original_words == 8
+    assert summary.total_processed_words == 4
+    assert summary.removed_word_count == 4
+
+
+def test_empty_preprocessing_summary_is_safe():
+    summary = summarize_preprocessing((), ())
+    screen = PreprocessTextScreen(documents=())
+
+    assert summary.document_count == 0
+    assert summary.total_original_words == 0
+    assert summary.total_processed_words == 0
+    assert summary.removed_word_count == 0
     assert screen._table.rowCount() == 0
     assert screen.data_preview_snapshot()["rows"] == []
 

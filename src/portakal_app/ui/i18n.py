@@ -67,6 +67,7 @@ class I18nManager(QObject):
                 "Twitter": "Twitter",
                 "Wikipedia": "Wikipedia",
                 "Preprocess Text": "Metni Ön İşle",
+                "Apply basic preprocessing operations to a text corpus.": "Bir metin korpusuna temel ön işleme işlemleri uygula.",
                 "Bag of Words": "Kelime Torbası",
                 "Reload Last Workflow": "Son İş Akışını Yeniden Yükle",
                 "File:": "Dosya:",

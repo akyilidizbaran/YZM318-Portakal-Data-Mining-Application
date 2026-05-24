@@ -15,6 +15,7 @@ from portakal_app.ui.screens.file_screen import FileScreen
 from portakal_app.ui.screens.import_documents_screen import ImportDocumentsScreen
 from portakal_app.ui.screens.paint_data_screen import PaintDataScreen
 from portakal_app.ui.screens.placeholder_screen import PlaceholderScreen
+from portakal_app.ui.screens.preprocess_text_screen import PreprocessTextScreen
 from portakal_app.ui.screens.rank_screen import RankScreen
 from portakal_app.ui.screens.save_data_screen import SaveDataScreen
 
@@ -1283,8 +1284,8 @@ def build_widgets() -> list[WidgetDefinition]:
             "text-mining",
             i18n.t("Preprocess Text"),
             True,
-            _placeholder_factory("Preprocess Text", "Placeholder for text preprocessing."),
-            i18n.t("Placeholder for text preprocessing."),
+            PreprocessTextScreen,
+            i18n.t("Apply basic preprocessing operations to a text corpus."),
             "preprocess",
             _inputs("Corpus"),
             _outputs("Corpus"),
