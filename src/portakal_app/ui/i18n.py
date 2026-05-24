@@ -64,6 +64,7 @@ class I18nManager(QObject):
                 "The Guardian": "The Guardian",
                 "Fetch Guardian articles into a corpus.": "Guardian makalelerini bir korpusa aktar.",
                 "NY Times": "NY Times",
+                "Fetch NY Times articles into a corpus.": "NY Times makalelerini bir korpusa aktar.",
                 "PubMed": "PubMed",
                 "Fetch PubMed abstracts into a corpus.": "PubMed özetlerini bir korpusa aktar.",
                 "Twitter": "Twitter",

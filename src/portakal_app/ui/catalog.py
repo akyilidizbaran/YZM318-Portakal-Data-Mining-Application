@@ -66,6 +66,7 @@ from portakal_app.ui.screens.sieve_diagram_screen import SieveDiagramScreen
 from portakal_app.ui.screens.mosaic_display_screen import MosaicDisplayScreen
 from portakal_app.ui.screens.freeviz_screen import FreeVizScreen
 from portakal_app.ui.screens.linear_projection_screen import LinearProjectionScreen
+from portakal_app.ui.screens.ny_times_screen import NYTimesScreen
 from portakal_app.ui.screens.radviz_screen import RadvizScreen
 from portakal_app.ui.screens.heat_map_screen import HeatMapScreen
 from portakal_app.ui.screens.line_plot_screen import LinePlotScreen
@@ -1244,8 +1245,8 @@ def build_widgets() -> list[WidgetDefinition]:
             "text-mining",
             i18n.t("NY Times"),
             True,
-            _placeholder_factory("NY Times", "Placeholder for NY Times text source."),
-            i18n.t("Placeholder for NY Times text source."),
+            NYTimesScreen,
+            i18n.t("Fetch NY Times articles into a corpus."),
             "text_ny_times",
             (),
             _outputs("Corpus"),

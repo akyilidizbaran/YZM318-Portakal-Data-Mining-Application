@@ -49,6 +49,16 @@ from portakal_app.ui.screens.import_documents_screen import (
     import_documents_from_paths,
     is_supported_document_path,
 )
+from portakal_app.ui.screens.ny_times_screen import (
+    NYTimesDocument,
+    NYTimesScreen,
+    build_ny_times_search_url,
+    fallback_ny_times_documents,
+    fetch_ny_times_documents,
+    get_ny_times_api_key,
+    parse_ny_times_response,
+    summarize_documents as summarize_ny_times_documents,
+)
 from portakal_app.ui.screens.placeholder_screen import PlaceholderScreen
 from portakal_app.ui.screens.preprocess_text_screen import (
     PreprocessOptions,
@@ -343,6 +353,26 @@ def test_main_window_can_open_guardian_widget(app):
     assert isinstance(window._workspace.current_widget(), GuardianScreen)
 
 
+def test_text_mining_ny_times_widget_uses_real_screen(app):
+    widgets = {widget.id: widget for widget in build_widgets()}
+
+    screen = widgets["text-ny-times"].screen_factory()
+
+    assert isinstance(screen, NYTimesScreen)
+    assert not isinstance(screen, PlaceholderScreen)
+    assert widgets["text-ny-times"].icon_name == "text_ny_times"
+    assert screen._table.rowCount() > 0
+
+
+def test_main_window_can_open_ny_times_widget(app):
+    window = MainWindow()
+
+    window._workspace.canvas.add_workflow_node("text-ny-times")
+    window._show_widget("text-ny-times")
+
+    assert isinstance(window._workspace.current_widget(), NYTimesScreen)
+
+
 def test_other_text_mining_widgets_still_use_placeholder_screens(app):
     placeholder_count = 0
     for widget in build_widgets():
@@ -351,6 +381,7 @@ def test_other_text_mining_widgets_still_use_placeholder_screens(app):
             "text-import-documents",
             "text-create-corpus",
             "text-the-guardian",
+            "text-ny-times",
             "text-pubmed",
             "text-wikipedia",
             "text-preprocess",
@@ -365,7 +396,7 @@ def test_other_text_mining_widgets_still_use_placeholder_screens(app):
         assert widget.description
         placeholder_count += 1
 
-    assert placeholder_count == 2
+    assert placeholder_count == 1
 
 
 def test_text_mining_widgets_register_expected_ports():
@@ -1081,6 +1112,171 @@ def test_guardian_document_summary_counts_words():
 
 def test_guardian_screen_empty_documents_are_safe(app):
     screen = GuardianScreen(documents=())
+    preview = screen.data_preview_snapshot()
+
+    assert screen._table.rowCount() == 0
+    assert preview["rows"] == []
+    assert "0 documents" in preview["summary"]
+
+
+def test_ny_times_url_builder_uses_query_section_and_api_key():
+    search_url = build_ny_times_search_url(
+        "climate change",
+        "fake-key",
+        limit=3,
+        section="Technology",
+    )
+
+    assert search_url.startswith("https://api.nytimes.com/svc/search/v2/articlesearch.json?")
+    assert "q=climate+change" in search_url
+    assert "api-key=fake-key" in search_url
+    assert "sort=newest" in search_url
+    assert "page=0" in search_url
+    assert "fq=" in search_url
+    assert "Technology" in search_url
+
+
+def test_ny_times_parsers_handle_malformed_or_empty_payloads_safely():
+    assert parse_ny_times_response(None) == ()
+    assert parse_ny_times_response({"response": {"docs": None}}) == ()
+    assert parse_ny_times_response({"response": {"docs": [{"headline": {}}]}}) == ()
+
+
+def test_ny_times_parser_reads_static_json_payload():
+    payload = {
+        "response": {
+            "docs": [
+                {
+                    "headline": {"main": "Text mining helps news archives"},
+                    "abstract": "Text mining &amp; reporting can summarize article collections.",
+                    "snippet": "unused when abstract exists",
+                    "lead_paragraph": "also unused",
+                    "section_name": "Technology",
+                    "news_desk": "Science",
+                    "pub_date": "2026-05-03T12:00:00Z",
+                    "web_url": "https://example.com/article",
+                }
+            ]
+        }
+    }
+
+    documents = parse_ny_times_response(payload)
+
+    assert len(documents) == 1
+    assert documents[0].title == "Text mining helps news archives"
+    assert documents[0].source == "NY Times"
+    assert documents[0].section == "Technology"
+    assert documents[0].publication_date == "2026-05-03T12:00:00Z"
+    assert documents[0].url == "https://example.com/article"
+    assert documents[0].text == "Text mining & reporting can summarize article collections."
+    assert count_words(documents[0].text) == 8
+
+
+def test_ny_times_missing_api_key_uses_fallback_without_crashing(monkeypatch):
+    monkeypatch.delenv("NYTIMES_API_KEY", raising=False)
+    result = fetch_ny_times_documents(
+        "climate",
+        api_key="",
+        fetch_json=lambda _url: pytest.fail("network should not be used"),
+    )
+
+    assert get_ny_times_api_key() == ""
+    assert result.used_fallback is True
+    assert result.documents
+    assert result.documents[0].source == "NY Times"
+
+
+def test_ny_times_empty_query_uses_fallback_without_crashing():
+    result = fetch_ny_times_documents(
+        "",
+        api_key="fake-key",
+        fetch_json=lambda _url: pytest.fail("network should not be used"),
+    )
+
+    assert result.used_fallback is True
+    assert result.documents
+    assert result.documents[0].source == "NY Times"
+
+
+def test_ny_times_fallback_documents_are_deterministic_and_non_empty():
+    first = fallback_ny_times_documents("climate")
+    second = fallback_ny_times_documents("climate")
+
+    assert first == second
+    assert len(first) == 3
+    assert all(
+        document.title
+        and document.source
+        and document.section
+        and document.publication_date
+        and document.url
+        and document.text
+        for document in first
+    )
+    assert all(count_words(document.text) > 0 for document in first)
+
+
+def test_ny_times_fetch_uses_static_payload_without_live_network():
+    requested_urls: list[str] = []
+
+    def fake_fetch_json(url: str):
+        requested_urls.append(url)
+        return {
+            "response": {
+                "docs": [
+                    {
+                        "headline": {"main": "Climate data in the archive"},
+                        "snippet": "Climate reporting uses datasets and text.",
+                        "section_name": "Environment",
+                        "pub_date": "2026-05-04T08:30:00Z",
+                        "web_url": "https://example.com/climate",
+                    }
+                ]
+            }
+        }
+
+    result = fetch_ny_times_documents(
+        "climate data",
+        limit=1,
+        section="Environment",
+        api_key="fake-key",
+        fetch_json=fake_fetch_json,
+    )
+
+    assert result.used_fallback is False
+    assert len(result.documents) == 1
+    assert result.documents[0].title == "Climate data in the archive"
+    assert result.documents[0].section == "Environment"
+    assert "fq=" in requested_urls[0]
+    assert "Environment" in requested_urls[0]
+
+
+def test_ny_times_fetch_falls_back_on_empty_results_or_parse_failures():
+    result = fetch_ny_times_documents(
+        "missing",
+        api_key="fake-key",
+        fetch_json=lambda _url: {"response": {"docs": []}},
+    )
+
+    assert result.used_fallback is True
+    assert result.documents
+
+
+def test_ny_times_document_summary_counts_words():
+    documents = (
+        NYTimesDocument("First", "one two", "NY Times", "News", "2026-01-01"),
+        NYTimesDocument("Second", "three four five", "NY Times", "News", "2026-01-02"),
+    )
+
+    summary = summarize_ny_times_documents(documents)
+
+    assert summary.document_count == 2
+    assert summary.total_word_count == 5
+    assert summary.average_words_per_document == 2.5
+
+
+def test_ny_times_screen_empty_documents_are_safe(app):
+    screen = NYTimesScreen(documents=())
     preview = screen.data_preview_snapshot()
 
     assert screen._table.rowCount() == 0
