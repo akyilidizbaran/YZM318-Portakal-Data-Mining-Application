@@ -77,6 +77,7 @@ from portakal_app.ui.screens.pythagorean_tree_screen import PythagoreanTreeScree
 from portakal_app.ui.screens.cn2_rule_viewer_screen import CN2RuleViewerScreen
 from portakal_app.ui.screens.nomogram_screen import NomogramScreen
 from portakal_app.ui.screens.scoring_sheet_viewer_screen import ScoringSheetViewerScreen
+from portakal_app.ui.screens.wikipedia_screen import WikipediaScreen
 
 from portakal_app.ui.screens.constant_screen import ConstantScreen
 from portakal_app.ui.screens.naive_bayes_screen import NaiveBayesScreen
@@ -1274,8 +1275,8 @@ def build_widgets() -> list[WidgetDefinition]:
             "text-mining",
             i18n.t("Wikipedia"),
             True,
-            _placeholder_factory("Wikipedia", "Placeholder for Wikipedia text source."),
-            i18n.t("Placeholder for Wikipedia text source."),
+            WikipediaScreen,
+            i18n.t("Fetch Wikipedia article summaries into a corpus."),
             "text_wikipedia",
             (),
             _outputs("Corpus"),

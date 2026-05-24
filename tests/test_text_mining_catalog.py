@@ -47,6 +47,16 @@ from portakal_app.ui.screens.preprocess_text_screen import (
     preprocess_text,
     summarize_preprocessing,
 )
+from portakal_app.ui.screens.wikipedia_screen import (
+    WikipediaScreen,
+    build_wikipedia_search_url,
+    build_wikipedia_summary_url,
+    fallback_wikipedia_documents,
+    fetch_wikipedia_documents,
+    parse_wikipedia_search_response,
+    parse_wikipedia_summary_response,
+    summarize_documents,
+)
 
 
 PERSON_A_TEXT_MINING_WIDGETS = [
@@ -252,6 +262,26 @@ def test_main_window_can_open_bag_of_words_widget(app):
     assert isinstance(window._workspace.current_widget(), BagOfWordsScreen)
 
 
+def test_text_mining_wikipedia_widget_uses_real_screen(app):
+    widgets = {widget.id: widget for widget in build_widgets()}
+
+    screen = widgets["text-wikipedia"].screen_factory()
+
+    assert isinstance(screen, WikipediaScreen)
+    assert not isinstance(screen, PlaceholderScreen)
+    assert widgets["text-wikipedia"].icon_name == "text_wikipedia"
+    assert screen._table.rowCount() > 0
+
+
+def test_main_window_can_open_wikipedia_widget(app):
+    window = MainWindow()
+
+    window._workspace.canvas.add_workflow_node("text-wikipedia")
+    window._show_widget("text-wikipedia")
+
+    assert isinstance(window._workspace.current_widget(), WikipediaScreen)
+
+
 def test_other_text_mining_widgets_still_use_placeholder_screens(app):
     placeholder_count = 0
     for widget in build_widgets():
@@ -259,6 +289,7 @@ def test_other_text_mining_widgets_still_use_placeholder_screens(app):
             "text-corpus",
             "text-import-documents",
             "text-create-corpus",
+            "text-wikipedia",
             "text-preprocess",
             "text-bag-of-words",
         }:
@@ -271,7 +302,7 @@ def test_other_text_mining_widgets_still_use_placeholder_screens(app):
         assert widget.description
         placeholder_count += 1
 
-    assert placeholder_count == 5
+    assert placeholder_count == 4
 
 
 def test_text_mining_widgets_register_expected_ports():
@@ -572,6 +603,113 @@ def test_bag_of_words_screen_renders_matrix_and_totals(app):
     assert screen._table.item(0, 0).text() == "First"
     assert screen._table.item(2, 0).text() == "Total Frequency"
     assert "3 terms" in screen.data_preview_snapshot()["summary"]
+
+
+def test_wikipedia_url_builders_use_query_language_and_title():
+    search_url = build_wikipedia_search_url("data mining", "tr", limit=3)
+    summary_url = build_wikipedia_summary_url("Data mining", "en")
+
+    assert search_url.startswith("https://tr.wikipedia.org/w/api.php?")
+    assert "srsearch=data+mining" in search_url
+    assert "srlimit=3" in search_url
+    assert summary_url == "https://en.wikipedia.org/api/rest_v1/page/summary/Data_mining"
+
+
+def test_wikipedia_parsers_handle_malformed_or_empty_payloads_safely():
+    assert parse_wikipedia_search_response(None) == ()
+    assert parse_wikipedia_search_response({"query": {"search": [{"snippet": "missing title"}]}}) == ()
+    assert parse_wikipedia_summary_response(None) is None
+    assert parse_wikipedia_summary_response({"title": "No extract"}) is None
+
+
+def test_wikipedia_search_parser_cleans_snippets():
+    results = parse_wikipedia_search_response(
+        {"query": {"search": [{"title": "Text mining", "snippet": "<span>Text</span> &amp; mining"}]}}
+    )
+
+    assert len(results) == 1
+    assert results[0].title == "Text mining"
+    assert results[0].snippet == "Text & mining"
+
+
+def test_wikipedia_summary_parser_returns_corpus_document():
+    document = parse_wikipedia_summary_response(
+        {
+            "title": "Text mining",
+            "extract": "Text mining extracts patterns from text.",
+            "description": "analysis method",
+        },
+        "en",
+    )
+
+    assert document is not None
+    assert document.title == "Text mining"
+    assert document.source == "Wikipedia (en)"
+    assert document.text == "Text mining extracts patterns from text. analysis method"
+    assert count_words(document.text) == 8
+
+
+def test_wikipedia_empty_query_uses_fallback_without_crashing():
+    result = fetch_wikipedia_documents("", "en", fetch_json=lambda _url: pytest.fail("network should not be used"))
+
+    assert result.used_fallback is True
+    assert result.documents
+    assert "sample" in result.documents[0].source.lower()
+
+
+def test_wikipedia_fallback_documents_are_deterministic_and_non_empty():
+    first = fallback_wikipedia_documents("portakal", "en")
+    second = fallback_wikipedia_documents("portakal", "en")
+
+    assert first == second
+    assert len(first) == 3
+    assert all(document.title and document.source and document.text for document in first)
+    assert all(count_words(document.text) > 0 for document in first)
+
+
+def test_wikipedia_fetch_uses_static_payloads_without_live_network():
+    def fake_fetch_json(url: str):
+        if "/w/api.php?" in url:
+            return {"query": {"search": [{"title": "Text mining", "snippet": "fallback snippet"}]}}
+        if url.endswith("/Text_mining"):
+            return {"title": "Text mining", "extract": "Text mining finds patterns in documents."}
+        return {}
+
+    result = fetch_wikipedia_documents("text mining", "en", limit=1, fetch_json=fake_fetch_json)
+
+    assert result.used_fallback is False
+    assert len(result.documents) == 1
+    assert result.documents[0].title == "Text mining"
+    assert result.documents[0].source == "Wikipedia (en)"
+
+
+def test_wikipedia_fetch_falls_back_on_network_or_empty_results():
+    result = fetch_wikipedia_documents("missing", "en", fetch_json=lambda _url: {"query": {"search": []}})
+
+    assert result.used_fallback is True
+    assert result.documents
+
+
+def test_wikipedia_document_summary_counts_words():
+    documents = (
+        CorpusDocument("First", "one two", "Wikipedia (en)"),
+        CorpusDocument("Second", "three four five", "Wikipedia (en)"),
+    )
+
+    summary = summarize_documents(documents)
+
+    assert summary.document_count == 2
+    assert summary.total_word_count == 5
+    assert summary.average_words_per_document == 2.5
+
+
+def test_wikipedia_screen_empty_documents_are_safe(app):
+    screen = WikipediaScreen(documents=())
+    preview = screen.data_preview_snapshot()
+
+    assert screen._table.rowCount() == 0
+    assert preview["rows"] == []
+    assert "0 documents" in preview["summary"]
 
 
 def test_import_documents_supported_extensions_are_recognized():

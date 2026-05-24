@@ -66,6 +66,7 @@ class I18nManager(QObject):
                 "PubMed": "PubMed",
                 "Twitter": "Twitter",
                 "Wikipedia": "Wikipedia",
+                "Fetch Wikipedia article summaries into a corpus.": "Wikipedia makale özetlerini bir korpusa aktar.",
                 "Preprocess Text": "Metni Ön İşle",
                 "Apply basic preprocessing operations to a text corpus.": "Bir metin korpusuna temel ön işleme işlemleri uygula.",
                 "Bag of Words": "Kelime Torbası",
