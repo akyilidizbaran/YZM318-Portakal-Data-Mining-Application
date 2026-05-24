@@ -17,6 +17,11 @@ from portakal_app.ui.screens.corpus_screen import (
     CorpusScreen,
     summarize_corpus,
 )
+from portakal_app.ui.screens.import_documents_screen import (
+    ImportDocumentsScreen,
+    import_documents_from_paths,
+    is_supported_document_path,
+)
 from portakal_app.ui.screens.placeholder_screen import PlaceholderScreen
 
 
@@ -94,9 +99,29 @@ def test_main_window_can_open_text_corpus_widget(app):
     assert isinstance(window._workspace.current_widget(), CorpusScreen)
 
 
+def test_text_mining_import_documents_widget_uses_real_screen(app):
+    widgets = {widget.id: widget for widget in build_widgets()}
+
+    screen = widgets["text-import-documents"].screen_factory()
+
+    assert isinstance(screen, ImportDocumentsScreen)
+    assert not isinstance(screen, PlaceholderScreen)
+    assert screen._table.rowCount() == 0
+
+
+def test_main_window_can_open_import_documents_widget(app):
+    window = MainWindow()
+
+    window._workspace.canvas.add_workflow_node("text-import-documents")
+    window._show_widget("text-import-documents")
+
+    assert isinstance(window._workspace.current_widget(), ImportDocumentsScreen)
+
+
 def test_other_text_mining_widgets_still_use_placeholder_screens(app):
+    placeholder_count = 0
     for widget in build_widgets():
-        if widget.category_id != "text-mining" or widget.id == "text-corpus":
+        if widget.category_id != "text-mining" or widget.id in {"text-corpus", "text-import-documents"}:
             continue
 
         screen = widget.screen_factory()
@@ -104,6 +129,9 @@ def test_other_text_mining_widgets_still_use_placeholder_screens(app):
         assert isinstance(screen, PlaceholderScreen)
         assert widget.enabled is True
         assert widget.description
+        placeholder_count += 1
+
+    assert placeholder_count == 8
 
 
 def test_text_mining_widgets_register_expected_ports():
@@ -140,3 +168,68 @@ def test_empty_corpus_summary_and_screen_are_safe(app):
     assert screen._table.rowCount() == 0
     assert preview["rows"] == []
     assert "0 documents" in preview["summary"]
+
+
+def test_import_documents_supported_extensions_are_recognized():
+    assert is_supported_document_path("notes.txt") is True
+    assert is_supported_document_path("notes.md") is True
+    assert is_supported_document_path("notes.csv") is True
+    assert is_supported_document_path("notes.pdf") is False
+
+
+def test_import_documents_rejects_unsupported_extensions_gracefully(tmp_path):
+    path = tmp_path / "report.pdf"
+    path.write_text("not supported", encoding="utf-8")
+
+    result = import_documents_from_paths((path,))
+
+    assert result.documents == ()
+    assert len(result.errors) == 1
+    assert "Unsupported file type" in result.errors[0]
+
+
+def test_import_documents_reports_read_errors_gracefully(tmp_path):
+    path = tmp_path / "missing.txt"
+
+    result = import_documents_from_paths((path,))
+
+    assert result.documents == ()
+    assert len(result.errors) == 1
+    assert "Could not read missing.txt" in result.errors[0]
+
+
+def test_import_documents_text_file_imports_title_preview_and_word_count(app, tmp_path):
+    path = tmp_path / "sample.txt"
+    path.write_text("alpha beta gamma", encoding="utf-8")
+    screen = ImportDocumentsScreen()
+
+    result = screen.import_paths((path,))
+
+    assert len(result.documents) == 1
+    assert result.documents[0].title == "sample.txt"
+    assert result.documents[0].text == "alpha beta gamma"
+    assert screen._table.item(0, 0).text() == "sample.txt"
+    assert screen._table.item(0, 2).text() == "alpha beta gamma"
+    assert screen._table.item(0, 3).text() == "3"
+
+
+def test_import_documents_empty_path_list_is_safe():
+    result = import_documents_from_paths(())
+
+    assert result.documents == ()
+    assert result.errors == ()
+
+
+def test_import_documents_csv_file_creates_documents_from_rows(tmp_path):
+    path = tmp_path / "rows.csv"
+    path.write_text("title,body\nFirst,hello world\nSecond,another row\n", encoding="utf-8")
+
+    result = import_documents_from_paths((path,))
+
+    assert result.errors == ()
+    assert [document.title for document in result.documents] == [
+        "rows.csv row 1",
+        "rows.csv row 2",
+        "rows.csv row 3",
+    ]
+    assert result.documents[1].text == "First hello world"

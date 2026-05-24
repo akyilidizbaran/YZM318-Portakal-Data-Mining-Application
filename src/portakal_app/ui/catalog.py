@@ -11,6 +11,7 @@ from portakal_app.ui.screens.data_table_screen import DataTableScreen
 from portakal_app.ui.screens.datasets_screen import DatasetsScreen
 from portakal_app.ui.screens.edit_domain_screen import EditDomainScreen
 from portakal_app.ui.screens.file_screen import FileScreen
+from portakal_app.ui.screens.import_documents_screen import ImportDocumentsScreen
 from portakal_app.ui.screens.paint_data_screen import PaintDataScreen
 from portakal_app.ui.screens.placeholder_screen import PlaceholderScreen
 from portakal_app.ui.screens.rank_screen import RankScreen
@@ -1204,8 +1205,8 @@ def build_widgets() -> list[WidgetDefinition]:
             "text-mining",
             i18n.t("Import Documents"),
             True,
-            _placeholder_factory("Import Documents", "Placeholder for importing local documents."),
-            i18n.t("Placeholder for importing local documents."),
+            ImportDocumentsScreen,
+            i18n.t("Import local text documents into a corpus."),
             "file",
             (),
             _outputs("Corpus"),
