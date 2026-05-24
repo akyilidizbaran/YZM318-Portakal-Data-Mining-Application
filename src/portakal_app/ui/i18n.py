@@ -277,6 +277,7 @@ class I18nManager(QObject):
                 "Train a baseline model.": "Temel bir model eğitin.",
                 "Measure model performance.": "Model performansını ölçün.",
                 "Reduce dimensionality.": "Boyutu azaltın.",
+                "Browse a built-in sample text corpus.": "Yerleşik örnek metin korpusunu inceleyin.",
                 "Placeholder for text corpus input.": "Metin korpusu girdisi için yer tutucu.",
                 "Placeholder for importing local documents.": "Yerel belgeleri içe aktarmak için yer tutucu.",
                 "Placeholder for creating a corpus manually.": "Elle korpus oluşturmak için yer tutucu.",

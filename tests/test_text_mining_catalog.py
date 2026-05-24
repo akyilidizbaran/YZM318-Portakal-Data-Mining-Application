@@ -11,6 +11,12 @@ pytest.importorskip("PySide6")
 from portakal_app.app import create_application
 from portakal_app.ui import i18n
 from portakal_app.ui.catalog import build_categories, build_widgets
+from portakal_app.ui.main_window import MainWindow
+from portakal_app.ui.screens.corpus_screen import (
+    CorpusDocument,
+    CorpusScreen,
+    summarize_corpus,
+)
 from portakal_app.ui.screens.placeholder_screen import PlaceholderScreen
 
 
@@ -68,9 +74,29 @@ def test_text_mining_widget_ids_are_unique():
     assert len(widget_ids) == len(set(widget_ids))
 
 
-def test_text_mining_widgets_have_valid_placeholder_screens(app):
+def test_text_mining_corpus_widget_uses_real_screen(app):
+    widgets = {widget.id: widget for widget in build_widgets()}
+
+    screen = widgets["text-corpus"].screen_factory()
+
+    assert isinstance(screen, CorpusScreen)
+    assert not isinstance(screen, PlaceholderScreen)
+    assert screen._table.rowCount() == 5
+    assert screen._document_count_label.text().endswith("5")
+
+
+def test_main_window_can_open_text_corpus_widget(app):
+    window = MainWindow()
+
+    window._workspace.canvas.add_workflow_node("text-corpus")
+    window._show_widget("text-corpus")
+
+    assert isinstance(window._workspace.current_widget(), CorpusScreen)
+
+
+def test_other_text_mining_widgets_still_use_placeholder_screens(app):
     for widget in build_widgets():
-        if widget.category_id != "text-mining":
+        if widget.category_id != "text-mining" or widget.id == "text-corpus":
             continue
 
         screen = widget.screen_factory()
@@ -88,3 +114,29 @@ def test_text_mining_widgets_register_expected_ports():
 
         assert tuple(port.label for port in widget.input_ports) == input_labels
         assert tuple(port.label for port in widget.output_ports) == output_labels
+
+
+def test_corpus_summary_counts_documents_and_words():
+    documents = (
+        CorpusDocument("First", "one two three"),
+        CorpusDocument("Second", "four five"),
+    )
+
+    summary = summarize_corpus(documents)
+
+    assert summary.document_count == 2
+    assert summary.total_word_count == 5
+    assert summary.average_words_per_document == 2.5
+
+
+def test_empty_corpus_summary_and_screen_are_safe(app):
+    summary = summarize_corpus(())
+    screen = CorpusScreen(documents=())
+    preview = screen.data_preview_snapshot()
+
+    assert summary.document_count == 0
+    assert summary.total_word_count == 0
+    assert summary.average_words_per_document == 0.0
+    assert screen._table.rowCount() == 0
+    assert preview["rows"] == []
+    assert "0 documents" in preview["summary"]

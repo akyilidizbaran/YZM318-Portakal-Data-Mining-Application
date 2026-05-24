@@ -4,6 +4,7 @@ from portakal_app.models import CategoryDefinition, PortDefinition, WidgetDefini
 from portakal_app.ui import i18n
 from portakal_app.ui.screens.color_screen import ColorScreen
 from portakal_app.ui.screens.column_statistics_screen import ColumnStatisticsScreen
+from portakal_app.ui.screens.corpus_screen import CorpusScreen
 from portakal_app.ui.screens.csv_import_screen import CSVImportScreen
 from portakal_app.ui.screens.data_info_screen import DataInfoScreen
 from portakal_app.ui.screens.data_table_screen import DataTableScreen
@@ -1192,8 +1193,8 @@ def build_widgets() -> list[WidgetDefinition]:
             "text-mining",
             i18n.t("Corpus"),
             True,
-            _placeholder_factory("Corpus", "Placeholder for text corpus input."),
-            i18n.t("Placeholder for text corpus input."),
+            CorpusScreen,
+            i18n.t("Browse a built-in sample text corpus."),
             "file",
             (),
             _outputs("Corpus"),
