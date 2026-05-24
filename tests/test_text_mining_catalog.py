@@ -15,7 +15,13 @@ from portakal_app.ui.main_window import MainWindow
 from portakal_app.ui.screens.corpus_screen import (
     CorpusDocument,
     CorpusScreen,
+    count_words,
     summarize_corpus,
+)
+from portakal_app.ui.screens.create_corpus_screen import (
+    CreateCorpusScreen,
+    make_document,
+    preview_text,
 )
 from portakal_app.ui.screens.import_documents_screen import (
     ImportDocumentsScreen,
@@ -118,10 +124,33 @@ def test_main_window_can_open_import_documents_widget(app):
     assert isinstance(window._workspace.current_widget(), ImportDocumentsScreen)
 
 
+def test_text_mining_create_corpus_widget_uses_real_screen(app):
+    widgets = {widget.id: widget for widget in build_widgets()}
+
+    screen = widgets["text-create-corpus"].screen_factory()
+
+    assert isinstance(screen, CreateCorpusScreen)
+    assert not isinstance(screen, PlaceholderScreen)
+    assert screen._table.rowCount() == 0
+
+
+def test_main_window_can_open_create_corpus_widget(app):
+    window = MainWindow()
+
+    window._workspace.canvas.add_workflow_node("text-create-corpus")
+    window._show_widget("text-create-corpus")
+
+    assert isinstance(window._workspace.current_widget(), CreateCorpusScreen)
+
+
 def test_other_text_mining_widgets_still_use_placeholder_screens(app):
     placeholder_count = 0
     for widget in build_widgets():
-        if widget.category_id != "text-mining" or widget.id in {"text-corpus", "text-import-documents"}:
+        if widget.category_id != "text-mining" or widget.id in {
+            "text-corpus",
+            "text-import-documents",
+            "text-create-corpus",
+        }:
             continue
 
         screen = widget.screen_factory()
@@ -131,7 +160,7 @@ def test_other_text_mining_widgets_still_use_placeholder_screens(app):
         assert widget.description
         placeholder_count += 1
 
-    assert placeholder_count == 8
+    assert placeholder_count == 7
 
 
 def test_text_mining_widgets_register_expected_ports():
@@ -168,6 +197,55 @@ def test_empty_corpus_summary_and_screen_are_safe(app):
     assert screen._table.rowCount() == 0
     assert preview["rows"] == []
     assert "0 documents" in preview["summary"]
+
+
+def test_create_corpus_document_uses_title_source_preview_and_word_count():
+    document = make_document("Manual Note", "alpha beta gamma", "Notes", index=1)
+
+    assert document.title == "Manual Note"
+    assert document.source == "Notes"
+    assert preview_text(document.text) == "alpha beta gamma"
+    assert count_words(document.text) == 3
+
+
+def test_create_corpus_empty_title_and_text_are_safe():
+    document = make_document("  ", "", "", index=2)
+
+    assert document.title == "Document 2"
+    assert document.source == "Manual"
+    assert count_words(document.text) == 0
+
+
+def test_create_corpus_summary_counts_manual_documents():
+    documents = (
+        make_document("First", "one two", "Manual", index=1),
+        make_document("Second", "three four five", "Manual", index=2),
+    )
+
+    summary = summarize_corpus(documents)
+
+    assert summary.document_count == 2
+    assert summary.total_word_count == 5
+    assert summary.average_words_per_document == 2.5
+
+
+def test_create_corpus_screen_adds_and_clears_documents(app):
+    screen = CreateCorpusScreen()
+
+    document = screen.add_document("", "one two", "")
+
+    assert document.title == "Document 1"
+    assert document.source == "Manual"
+    assert screen._table.rowCount() == 1
+    assert screen._table.item(0, 0).text() == "Document 1"
+    assert screen._table.item(0, 1).text() == "Manual"
+    assert screen._table.item(0, 2).text() == "one two"
+    assert screen._table.item(0, 3).text() == "2"
+
+    screen.clear_corpus()
+
+    assert screen._table.rowCount() == 0
+    assert screen.data_preview_snapshot()["rows"] == []
 
 
 def test_import_documents_supported_extensions_are_recognized():

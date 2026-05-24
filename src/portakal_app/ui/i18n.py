@@ -60,6 +60,7 @@ class I18nManager(QObject):
                 "Corpus": "Korpus",
                 "Import Documents": "Belgeleri İçe Aktar",
                 "Create Corpus": "Korpus Oluştur",
+                "Create a small text corpus manually.": "Küçük bir metin korpusunu elle oluştur.",
                 "The Guardian": "The Guardian",
                 "NY Times": "NY Times",
                 "PubMed": "PubMed",
