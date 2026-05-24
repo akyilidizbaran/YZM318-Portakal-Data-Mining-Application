@@ -104,6 +104,7 @@ from portakal_app.ui.screens.save_model_screen import SaveModelScreen
 from portakal_app.ui.screens.load_model_screen import LoadModelScreen
 from portakal_app.ui.screens.confusion_matrix_screen import ConfusionMatrixScreen
 from portakal_app.ui.screens.test_and_score_screen import TestAndScoreScreen
+from portakal_app.ui.screens.twitter_screen import TwitterScreen
 from portakal_app.widgets.unsupervised.ow_hierarchical_clustering import OWHierarchicalClustering
 from portakal_app.widgets.unsupervised.ow_kmeans import OWKMeans
 from portakal_app.widgets.unsupervised.ow_pca import OWPCA
@@ -1267,8 +1268,8 @@ def build_widgets() -> list[WidgetDefinition]:
             "text-mining",
             i18n.t("Twitter"),
             True,
-            _placeholder_factory("Twitter", "Placeholder for Twitter text source."),
-            i18n.t("Placeholder for Twitter text source."),
+            TwitterScreen,
+            i18n.t("Fetch social posts into a corpus."),
             "text_twitter",
             (),
             _outputs("Corpus"),

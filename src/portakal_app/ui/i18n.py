@@ -68,6 +68,7 @@ class I18nManager(QObject):
                 "PubMed": "PubMed",
                 "Fetch PubMed abstracts into a corpus.": "PubMed özetlerini bir korpusa aktar.",
                 "Twitter": "Twitter",
+                "Fetch social posts into a corpus.": "Sosyal medya gönderilerini bir korpusa aktar.",
                 "Wikipedia": "Wikipedia",
                 "Fetch Wikipedia article summaries into a corpus.": "Wikipedia makale özetlerini bir korpusa aktar.",
                 "Preprocess Text": "Metni Ön İşle",

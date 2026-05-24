@@ -78,6 +78,16 @@ from portakal_app.ui.screens.pubmed_screen import (
     parse_pubmed_search_response,
     summarize_documents as summarize_pubmed_documents,
 )
+from portakal_app.ui.screens.twitter_screen import (
+    TwitterDocument,
+    TwitterScreen,
+    build_twitter_search_url,
+    fallback_twitter_documents,
+    fetch_twitter_documents,
+    get_twitter_bearer_token,
+    parse_twitter_response,
+    summarize_documents as summarize_twitter_documents,
+)
 from portakal_app.ui.screens.wikipedia_screen import (
     WikipediaScreen,
     build_wikipedia_search_url,
@@ -373,30 +383,36 @@ def test_main_window_can_open_ny_times_widget(app):
     assert isinstance(window._workspace.current_widget(), NYTimesScreen)
 
 
-def test_other_text_mining_widgets_still_use_placeholder_screens(app):
-    placeholder_count = 0
-    for widget in build_widgets():
-        if widget.category_id != "text-mining" or widget.id in {
-            "text-corpus",
-            "text-import-documents",
-            "text-create-corpus",
-            "text-the-guardian",
-            "text-ny-times",
-            "text-pubmed",
-            "text-wikipedia",
-            "text-preprocess",
-            "text-bag-of-words",
-        }:
-            continue
+def test_text_mining_twitter_widget_uses_real_screen(app):
+    widgets = {widget.id: widget for widget in build_widgets()}
 
+    screen = widgets["text-twitter"].screen_factory()
+
+    assert isinstance(screen, TwitterScreen)
+    assert not isinstance(screen, PlaceholderScreen)
+    assert widgets["text-twitter"].icon_name == "text_twitter"
+    assert screen._table.rowCount() > 0
+
+
+def test_main_window_can_open_twitter_widget(app):
+    window = MainWindow()
+
+    window._workspace.canvas.add_workflow_node("text-twitter")
+    window._show_widget("text-twitter")
+
+    assert isinstance(window._workspace.current_widget(), TwitterScreen)
+
+
+def test_no_person_a_text_mining_widget_uses_placeholder_screen(app):
+    widgets = {widget.id: widget for widget in build_widgets()}
+
+    for widget_id, _label, _inputs, _outputs in PERSON_A_TEXT_MINING_WIDGETS:
+        widget = widgets[widget_id]
         screen = widget.screen_factory()
 
-        assert isinstance(screen, PlaceholderScreen)
+        assert not isinstance(screen, PlaceholderScreen)
         assert widget.enabled is True
         assert widget.description
-        placeholder_count += 1
-
-    assert placeholder_count == 1
 
 
 def test_text_mining_widgets_register_expected_ports():
@@ -1277,6 +1293,159 @@ def test_ny_times_document_summary_counts_words():
 
 def test_ny_times_screen_empty_documents_are_safe(app):
     screen = NYTimesScreen(documents=())
+    preview = screen.data_preview_snapshot()
+
+    assert screen._table.rowCount() == 0
+    assert preview["rows"] == []
+    assert "0 documents" in preview["summary"]
+
+
+def test_twitter_url_builder_uses_query_and_limit():
+    search_url = build_twitter_search_url("data mining", limit=12)
+
+    assert search_url.startswith("https://api.twitter.com/2/tweets/search/recent?")
+    assert "query=data+mining" in search_url
+    assert "max_results=12" in search_url
+    assert "tweet.fields=created_at%2Cauthor_id" in search_url
+
+
+def test_twitter_parsers_handle_malformed_or_empty_payloads_safely():
+    assert parse_twitter_response(None) == ()
+    assert parse_twitter_response({"data": None}) == ()
+    assert parse_twitter_response({"data": [{"id": "1"}]}) == ()
+
+
+def test_twitter_parser_reads_static_json_payload():
+    payload = {
+        "data": [
+            {
+                "id": "1",
+                "text": "Social text mining &amp; analysis uses short posts.",
+                "created_at": "2026-05-24T10:00:00Z",
+                "author_id": "user1",
+            }
+        ],
+        "includes": {
+            "users": [
+                {
+                    "id": "user1",
+                    "username": "researcher",
+                }
+            ]
+        },
+    }
+
+    documents = parse_twitter_response(payload)
+
+    assert len(documents) == 1
+    assert documents[0].post_id == "1"
+    assert documents[0].author == "researcher"
+    assert documents[0].source == "Twitter/X"
+    assert documents[0].publication_date == "2026-05-24T10:00:00Z"
+    assert documents[0].text == "Social text mining & analysis uses short posts."
+    assert count_words(documents[0].text) == 8
+
+
+def test_twitter_missing_bearer_token_uses_fallback_without_crashing(monkeypatch):
+    monkeypatch.delenv("TWITTER_BEARER_TOKEN", raising=False)
+    result = fetch_twitter_documents(
+        "text mining",
+        bearer_token="",
+        fetch_json=lambda *_args: pytest.fail("network should not be used"),
+    )
+
+    assert get_twitter_bearer_token() == ""
+    assert result.used_fallback is True
+    assert result.documents
+    assert result.documents[0].source == "Twitter/X"
+
+
+def test_twitter_empty_query_uses_fallback_without_crashing():
+    result = fetch_twitter_documents(
+        "",
+        bearer_token="fake-token",
+        fetch_json=lambda *_args: pytest.fail("network should not be used"),
+    )
+
+    assert result.used_fallback is True
+    assert result.documents
+    assert result.documents[0].source == "Twitter/X"
+
+
+def test_twitter_fallback_documents_are_deterministic_and_non_empty():
+    first = fallback_twitter_documents("text mining")
+    second = fallback_twitter_documents("text mining")
+
+    assert first == second
+    assert len(first) == 3
+    assert all(
+        document.post_id
+        and document.source
+        and document.author
+        and document.publication_date
+        and document.text
+        for document in first
+    )
+    assert all(count_words(document.text) > 0 for document in first)
+
+
+def test_twitter_fetch_uses_static_payload_without_live_network():
+    requested: list[tuple[str, str]] = []
+
+    def fake_fetch_json(url: str, bearer_token: str):
+        requested.append((url, bearer_token))
+        return {
+            "data": [
+                {
+                    "id": "42",
+                    "text": "Text mining can summarize social posts.",
+                    "created_at": "2026-05-24T11:00:00Z",
+                    "author_id": "user42",
+                }
+            ]
+        }
+
+    result = fetch_twitter_documents(
+        "social text",
+        limit=1,
+        bearer_token="fake-token",
+        fetch_json=fake_fetch_json,
+    )
+
+    assert result.used_fallback is False
+    assert len(result.documents) == 1
+    assert result.documents[0].post_id == "42"
+    assert result.documents[0].author == "user42"
+    assert requested[0][1] == "fake-token"
+    assert "query=social+text" in requested[0][0]
+
+
+def test_twitter_fetch_falls_back_on_empty_results_or_parse_failures():
+    result = fetch_twitter_documents(
+        "missing",
+        bearer_token="fake-token",
+        fetch_json=lambda *_args: {"data": []},
+    )
+
+    assert result.used_fallback is True
+    assert result.documents
+
+
+def test_twitter_document_summary_counts_words():
+    documents = (
+        TwitterDocument("1", "one two", "Twitter/X", "first", "2026-01-01"),
+        TwitterDocument("2", "three four five", "Twitter/X", "second", "2026-01-02"),
+    )
+
+    summary = summarize_twitter_documents(documents)
+
+    assert summary.document_count == 2
+    assert summary.total_word_count == 5
+    assert summary.average_words_per_document == 2.5
+
+
+def test_twitter_screen_empty_documents_are_safe(app):
+    screen = TwitterScreen(documents=())
     preview = screen.data_preview_snapshot()
 
     assert screen._table.rowCount() == 0
