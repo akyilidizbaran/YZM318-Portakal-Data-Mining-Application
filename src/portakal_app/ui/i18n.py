@@ -69,6 +69,7 @@ class I18nManager(QObject):
                 "Preprocess Text": "Metni Ön İşle",
                 "Apply basic preprocessing operations to a text corpus.": "Bir metin korpusuna temel ön işleme işlemleri uygula.",
                 "Bag of Words": "Kelime Torbası",
+                "Convert a corpus into a document-term matrix.": "Bir korpusu belge-terim matrisine dönüştür.",
                 "Reload Last Workflow": "Son İş Akışını Yeniden Yükle",
                 "File:": "Dosya:",
                 "URL:": "URL:",

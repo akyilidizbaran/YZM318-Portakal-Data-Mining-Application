@@ -12,6 +12,14 @@ from portakal_app.app import create_application
 from portakal_app.ui import i18n
 from portakal_app.ui.catalog import build_categories, build_widgets
 from portakal_app.ui.main_window import MainWindow
+from portakal_app.ui.screens.bag_of_words_screen import (
+    BagOfWordsScreen,
+    build_document_term_matrix,
+    build_vocabulary,
+    summarize_bow,
+    term_frequencies,
+    tokenize_for_bow,
+)
 from portakal_app.ui.screens.corpus_screen import (
     CorpusDocument,
     CorpusScreen,
@@ -169,6 +177,25 @@ def test_main_window_can_open_preprocess_text_widget(app):
     assert isinstance(window._workspace.current_widget(), PreprocessTextScreen)
 
 
+def test_text_mining_bag_of_words_widget_uses_real_screen(app):
+    widgets = {widget.id: widget for widget in build_widgets()}
+
+    screen = widgets["text-bag-of-words"].screen_factory()
+
+    assert isinstance(screen, BagOfWordsScreen)
+    assert not isinstance(screen, PlaceholderScreen)
+    assert screen._table.rowCount() > 0
+
+
+def test_main_window_can_open_bag_of_words_widget(app):
+    window = MainWindow()
+
+    window._workspace.canvas.add_workflow_node("text-bag-of-words")
+    window._show_widget("text-bag-of-words")
+
+    assert isinstance(window._workspace.current_widget(), BagOfWordsScreen)
+
+
 def test_other_text_mining_widgets_still_use_placeholder_screens(app):
     placeholder_count = 0
     for widget in build_widgets():
@@ -177,6 +204,7 @@ def test_other_text_mining_widgets_still_use_placeholder_screens(app):
             "text-import-documents",
             "text-create-corpus",
             "text-preprocess",
+            "text-bag-of-words",
         }:
             continue
 
@@ -187,7 +215,7 @@ def test_other_text_mining_widgets_still_use_placeholder_screens(app):
         assert widget.description
         placeholder_count += 1
 
-    assert placeholder_count == 6
+    assert placeholder_count == 5
 
 
 def test_text_mining_widgets_register_expected_ports():
@@ -371,6 +399,123 @@ def test_empty_preprocessing_summary_is_safe():
     assert summary.removed_word_count == 0
     assert screen._table.rowCount() == 0
     assert screen.data_preview_snapshot()["rows"] == []
+
+
+def test_bag_of_words_tokenization_lowercases_text():
+    assert tokenize_for_bow("Hello WORLD") == ("hello", "world")
+
+
+def test_bag_of_words_tokenization_removes_punctuation():
+    assert tokenize_for_bow("Hello, world!") == ("hello", "world")
+
+
+def test_bag_of_words_vocabulary_building_works():
+    documents = (
+        CorpusDocument("First", "apple banana apple"),
+        CorpusDocument("Second", "banana carrot"),
+    )
+
+    assert build_vocabulary(documents) == ("apple", "banana", "carrot")
+
+
+def test_bag_of_words_minimum_term_frequency_threshold_works():
+    documents = (
+        CorpusDocument("First", "apple banana apple"),
+        CorpusDocument("Second", "banana carrot"),
+    )
+
+    assert build_vocabulary(documents, min_frequency=2) == ("apple", "banana")
+
+
+def test_bag_of_words_document_term_matrix_counts_terms():
+    documents = (
+        CorpusDocument("First", "apple banana apple"),
+        CorpusDocument("Second", "banana carrot"),
+    )
+    vocabulary = ("apple", "banana", "carrot")
+
+    matrix = build_document_term_matrix(documents, vocabulary)
+
+    assert matrix == ((2, 1, 0), (0, 1, 1))
+
+
+def test_bag_of_words_binary_counts_option_works():
+    documents = (
+        CorpusDocument("First", "apple banana apple"),
+        CorpusDocument("Second", "banana carrot"),
+    )
+    vocabulary = ("apple", "banana", "carrot")
+
+    matrix = build_document_term_matrix(documents, vocabulary, binary=True)
+
+    assert matrix == ((1, 1, 0), (0, 1, 1))
+
+
+def test_bag_of_words_term_frequency_summary_works():
+    matrix = ((2, 1, 0), (1, 1, 1))
+    vocabulary = ("apple", "banana", "carrot")
+
+    assert term_frequencies(matrix, vocabulary) == {
+        "apple": 3,
+        "banana": 2,
+        "carrot": 1,
+    }
+
+
+def test_bag_of_words_empty_and_symbol_only_documents_are_safe():
+    documents = (
+        CorpusDocument("Empty", ""),
+        CorpusDocument("Symbols", "!!! ..."),
+    )
+    vocabulary = build_vocabulary(documents)
+    matrix = build_document_term_matrix(documents, vocabulary)
+    summary = summarize_bow(documents, vocabulary, matrix)
+
+    assert vocabulary == ()
+    assert matrix == ((), ())
+    assert summary.document_count == 2
+    assert summary.vocabulary_size == 0
+    assert summary.total_token_count == 0
+    assert summary.most_frequent_term == "None"
+
+
+def test_bag_of_words_number_only_documents_are_safe():
+    documents = (CorpusDocument("Numbers", "123 456 123"),)
+    vocabulary = build_vocabulary(documents)
+    matrix = build_document_term_matrix(documents, vocabulary)
+
+    assert tokenize_for_bow(documents[0].text) == ("123", "456", "123")
+    assert vocabulary == ("123", "456")
+    assert matrix == ((2, 1),)
+
+
+def test_bag_of_words_metadata_returns_expected_values():
+    documents = (
+        CorpusDocument("First", "apple apple banana"),
+        CorpusDocument("Second", "banana carrot apple"),
+    )
+    vocabulary = build_vocabulary(documents)
+    matrix = build_document_term_matrix(documents, vocabulary)
+
+    summary = summarize_bow(documents, vocabulary, matrix)
+
+    assert summary.document_count == 2
+    assert summary.vocabulary_size == 3
+    assert summary.total_token_count == 6
+    assert summary.most_frequent_term == "apple"
+
+
+def test_bag_of_words_screen_renders_matrix_and_totals(app):
+    documents = (
+        CorpusDocument("First", "apple apple banana"),
+        CorpusDocument("Second", "banana carrot apple"),
+    )
+    screen = BagOfWordsScreen(documents=documents)
+
+    assert screen._table.rowCount() == 3
+    assert screen._table.item(0, 0).text() == "First"
+    assert screen._table.item(2, 0).text() == "Total Frequency"
+    assert "3 terms" in screen.data_preview_snapshot()["summary"]
 
 
 def test_import_documents_supported_extensions_are_recognized():

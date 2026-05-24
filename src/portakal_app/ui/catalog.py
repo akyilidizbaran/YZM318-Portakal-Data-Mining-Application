@@ -21,6 +21,7 @@ from portakal_app.ui.screens.save_data_screen import SaveDataScreen
 
 from portakal_app.ui.screens.aggregate_columns_screen import AggregateColumnsScreen
 from portakal_app.ui.screens.apply_domain_screen import ApplyDomainScreen
+from portakal_app.ui.screens.bag_of_words_screen import BagOfWordsScreen
 from portakal_app.ui.screens.ca_screen import CAScreen
 from portakal_app.ui.screens.continuize_screen import ContinuizeScreen
 from portakal_app.ui.screens.correlations_screen import CorrelationsScreen
@@ -1295,8 +1296,8 @@ def build_widgets() -> list[WidgetDefinition]:
             "text-mining",
             i18n.t("Bag of Words"),
             True,
-            _placeholder_factory("Bag of Words", "Placeholder for converting a corpus into features."),
-            i18n.t("Placeholder for converting a corpus into features."),
+            BagOfWordsScreen,
+            i18n.t("Convert a corpus into a document-term matrix."),
             "table",
             _inputs("Corpus"),
             _outputs("Data"),
