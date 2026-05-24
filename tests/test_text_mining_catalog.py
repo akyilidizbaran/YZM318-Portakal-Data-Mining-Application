@@ -47,6 +47,17 @@ from portakal_app.ui.screens.preprocess_text_screen import (
     preprocess_text,
     summarize_preprocessing,
 )
+from portakal_app.ui.screens.pubmed_screen import (
+    PubMedDocument,
+    PubMedScreen,
+    build_pubmed_fetch_url,
+    build_pubmed_search_url,
+    fallback_pubmed_documents,
+    fetch_pubmed_documents,
+    parse_pubmed_fetch_response,
+    parse_pubmed_search_response,
+    summarize_documents as summarize_pubmed_documents,
+)
 from portakal_app.ui.screens.wikipedia_screen import (
     WikipediaScreen,
     build_wikipedia_search_url,
@@ -282,6 +293,26 @@ def test_main_window_can_open_wikipedia_widget(app):
     assert isinstance(window._workspace.current_widget(), WikipediaScreen)
 
 
+def test_text_mining_pubmed_widget_uses_real_screen(app):
+    widgets = {widget.id: widget for widget in build_widgets()}
+
+    screen = widgets["text-pubmed"].screen_factory()
+
+    assert isinstance(screen, PubMedScreen)
+    assert not isinstance(screen, PlaceholderScreen)
+    assert widgets["text-pubmed"].icon_name == "text_pubmed"
+    assert screen._table.rowCount() > 0
+
+
+def test_main_window_can_open_pubmed_widget(app):
+    window = MainWindow()
+
+    window._workspace.canvas.add_workflow_node("text-pubmed")
+    window._show_widget("text-pubmed")
+
+    assert isinstance(window._workspace.current_widget(), PubMedScreen)
+
+
 def test_other_text_mining_widgets_still_use_placeholder_screens(app):
     placeholder_count = 0
     for widget in build_widgets():
@@ -289,6 +320,7 @@ def test_other_text_mining_widgets_still_use_placeholder_screens(app):
             "text-corpus",
             "text-import-documents",
             "text-create-corpus",
+            "text-pubmed",
             "text-wikipedia",
             "text-preprocess",
             "text-bag-of-words",
@@ -302,7 +334,7 @@ def test_other_text_mining_widgets_still_use_placeholder_screens(app):
         assert widget.description
         placeholder_count += 1
 
-    assert placeholder_count == 4
+    assert placeholder_count == 3
 
 
 def test_text_mining_widgets_register_expected_ports():
@@ -705,6 +737,161 @@ def test_wikipedia_document_summary_counts_words():
 
 def test_wikipedia_screen_empty_documents_are_safe(app):
     screen = WikipediaScreen(documents=())
+    preview = screen.data_preview_snapshot()
+
+    assert screen._table.rowCount() == 0
+    assert preview["rows"] == []
+    assert "0 documents" in preview["summary"]
+
+
+def test_pubmed_url_builders_use_query_limit_and_pmids():
+    search_url = build_pubmed_search_url("cancer therapy", limit=3)
+    fetch_url = build_pubmed_fetch_url(("123", "456"))
+
+    assert search_url.startswith("https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?")
+    assert "db=pubmed" in search_url
+    assert "term=cancer+therapy" in search_url
+    assert "retmax=3" in search_url
+    assert fetch_url.startswith("https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?")
+    assert "id=123%2C456" in fetch_url
+
+
+def test_pubmed_parsers_handle_malformed_or_empty_payloads_safely():
+    assert parse_pubmed_search_response(None) == ()
+    assert parse_pubmed_search_response({"esearchresult": {"idlist": None}}) == ()
+    assert parse_pubmed_fetch_response(None) == ()
+    assert parse_pubmed_fetch_response("<not xml") == ()
+
+
+def test_pubmed_search_parser_returns_pmids():
+    payload = {"esearchresult": {"idlist": ["123", "456", ""]}}
+
+    assert parse_pubmed_search_response(payload) == ("123", "456")
+
+
+def test_pubmed_fetch_parser_reads_static_xml_payload():
+    xml_payload = """
+    <PubmedArticleSet>
+      <PubmedArticle>
+        <MedlineCitation>
+          <PMID>12345</PMID>
+          <Article>
+            <ArticleTitle>Text mining in biomedical literature</ArticleTitle>
+            <Abstract>
+              <AbstractText>Biomedical text mining extracts signals from abstracts.</AbstractText>
+              <AbstractText Label="Conclusion">The method supports literature review.</AbstractText>
+            </Abstract>
+          </Article>
+        </MedlineCitation>
+      </PubmedArticle>
+    </PubmedArticleSet>
+    """
+
+    documents = parse_pubmed_fetch_response(xml_payload)
+
+    assert len(documents) == 1
+    assert documents[0].title == "Text mining in biomedical literature"
+    assert documents[0].source == "PubMed"
+    assert documents[0].pmid == "12345"
+    assert "Biomedical text mining extracts signals from abstracts." in documents[0].text
+    assert "Conclusion: The method supports literature review." in documents[0].text
+
+
+def test_pubmed_fetch_parser_handles_missing_abstract():
+    xml_payload = """
+    <PubmedArticleSet>
+      <PubmedArticle>
+        <MedlineCitation>
+          <PMID>98765</PMID>
+          <Article>
+            <ArticleTitle>Record without abstract</ArticleTitle>
+          </Article>
+        </MedlineCitation>
+      </PubmedArticle>
+    </PubmedArticleSet>
+    """
+
+    documents = parse_pubmed_fetch_response(xml_payload)
+
+    assert len(documents) == 1
+    assert documents[0].pmid == "98765"
+    assert documents[0].text == "No abstract available for this PubMed record."
+
+
+def test_pubmed_empty_query_uses_fallback_without_crashing():
+    result = fetch_pubmed_documents("", fetch_json=lambda _url: pytest.fail("network should not be used"))
+
+    assert result.used_fallback is True
+    assert result.documents
+    assert result.documents[0].source == "PubMed"
+
+
+def test_pubmed_fallback_documents_are_deterministic_and_non_empty():
+    first = fallback_pubmed_documents("oncology")
+    second = fallback_pubmed_documents("oncology")
+
+    assert first == second
+    assert len(first) == 3
+    assert all(document.title and document.source and document.pmid and document.text for document in first)
+    assert all(count_words(document.text) > 0 for document in first)
+
+
+def test_pubmed_fetch_uses_static_payloads_without_live_network():
+    xml_payload = """
+    <PubmedArticleSet>
+      <PubmedArticle>
+        <MedlineCitation>
+          <PMID>12345</PMID>
+          <Article>
+            <ArticleTitle>Biomedical text mining</ArticleTitle>
+            <Abstract>
+              <AbstractText>Text mining supports biomedical literature analysis.</AbstractText>
+            </Abstract>
+          </Article>
+        </MedlineCitation>
+      </PubmedArticle>
+    </PubmedArticleSet>
+    """
+
+    result = fetch_pubmed_documents(
+        "text mining",
+        limit=1,
+        fetch_json=lambda _url: {"esearchresult": {"idlist": ["12345"]}},
+        fetch_text=lambda _url: xml_payload,
+    )
+
+    assert result.used_fallback is False
+    assert len(result.documents) == 1
+    assert result.documents[0].title == "Biomedical text mining"
+    assert result.documents[0].pmid == "12345"
+
+
+def test_pubmed_fetch_falls_back_on_empty_results_or_parse_failures():
+    result = fetch_pubmed_documents(
+        "missing",
+        fetch_json=lambda _url: {"esearchresult": {"idlist": []}},
+        fetch_text=lambda _url: pytest.fail("fetch should not be called"),
+    )
+
+    assert result.used_fallback is True
+    assert result.documents
+
+
+def test_pubmed_document_summary_counts_words():
+    documents = (
+        PubMedDocument("First", "one two", "PubMed", "1"),
+        PubMedDocument("Second", "three four five", "PubMed", "2"),
+    )
+
+    summary = summarize_pubmed_documents(documents)
+
+    assert summary.document_count == 2
+    assert summary.total_word_count == 5
+    assert summary.average_words_per_document == 2.5
+
+
+def test_pubmed_screen_empty_documents_are_safe(app):
+    screen = PubMedScreen(documents=())
     preview = screen.data_preview_snapshot()
 
     assert screen._table.rowCount() == 0

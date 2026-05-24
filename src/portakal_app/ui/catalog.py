@@ -16,6 +16,7 @@ from portakal_app.ui.screens.import_documents_screen import ImportDocumentsScree
 from portakal_app.ui.screens.paint_data_screen import PaintDataScreen
 from portakal_app.ui.screens.placeholder_screen import PlaceholderScreen
 from portakal_app.ui.screens.preprocess_text_screen import PreprocessTextScreen
+from portakal_app.ui.screens.pubmed_screen import PubMedScreen
 from portakal_app.ui.screens.rank_screen import RankScreen
 from portakal_app.ui.screens.save_data_screen import SaveDataScreen
 
@@ -1253,8 +1254,8 @@ def build_widgets() -> list[WidgetDefinition]:
             "text-mining",
             i18n.t("PubMed"),
             True,
-            _placeholder_factory("PubMed", "Placeholder for PubMed text source."),
-            i18n.t("Placeholder for PubMed text source."),
+            PubMedScreen,
+            i18n.t("Fetch PubMed abstracts into a corpus."),
             "text_pubmed",
             (),
             _outputs("Corpus"),
