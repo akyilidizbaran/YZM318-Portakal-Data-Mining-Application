@@ -500,6 +500,13 @@ def test_create_corpus_screen_adds_and_clears_documents(app):
     assert screen.data_preview_snapshot()["rows"] == []
 
 
+def test_create_corpus_title_and_source_inputs_use_readable_text_color(app):
+    screen = CreateCorpusScreen()
+
+    assert "color: #ffffff" in screen._title_input.styleSheet()
+    assert "color: #ffffff" in screen._source_input.styleSheet()
+
+
 def test_preprocess_text_lowercase_works():
     assert preprocess_text(
         "Hello WORLD",

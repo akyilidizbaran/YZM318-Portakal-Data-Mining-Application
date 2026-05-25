@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 
 from PySide6.QtCore import QSize
+from PySide6.QtGui import QColor, QPalette
 from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
@@ -22,6 +23,20 @@ from portakal_app.ui.shared.cards import SectionHeader
 
 
 DEFAULT_SOURCE = "Manual"
+READABLE_LINE_EDIT_STYLE = """
+QLineEdit {
+    background-color: #2f2f2f;
+    color: #ffffff;
+    border: 1px solid #4b4b4b;
+    border-radius: 8px;
+    padding: 8px 10px;
+    selection-background-color: #cf9440;
+    selection-color: #ffffff;
+}
+QLineEdit:focus {
+    border-color: #e2a952;
+}
+"""
 
 
 def create_default_title(index: int) -> str:
@@ -39,6 +54,14 @@ def make_document(title: str, text: str, source: str, index: int = 1) -> CorpusD
     clean_title = title.strip() or create_default_title(index)
     clean_source = source.strip() or DEFAULT_SOURCE
     return CorpusDocument(clean_title, text, clean_source)
+
+
+def apply_readable_line_edit_style(line_edit: QLineEdit) -> None:
+    line_edit.setStyleSheet(READABLE_LINE_EDIT_STYLE)
+    palette = line_edit.palette()
+    palette.setColor(QPalette.ColorRole.Text, QColor("#ffffff"))
+    palette.setColor(QPalette.ColorRole.PlaceholderText, QColor("#d6d6d6"))
+    line_edit.setPalette(palette)
 
 
 class CreateCorpusScreen(QWidget, WorkflowNodeScreenSupport):
@@ -78,11 +101,13 @@ class CreateCorpusScreen(QWidget, WorkflowNodeScreenSupport):
 
         self._title_input = QLineEdit(self)
         self._title_input.setPlaceholderText("Document title")
+        apply_readable_line_edit_style(self._title_input)
         layout.addWidget(QLabel("Title", self))
         layout.addWidget(self._title_input)
 
         self._source_input = QLineEdit(self)
         self._source_input.setPlaceholderText(DEFAULT_SOURCE)
+        apply_readable_line_edit_style(self._source_input)
         layout.addWidget(QLabel("Source / Category", self))
         layout.addWidget(self._source_input)
 
