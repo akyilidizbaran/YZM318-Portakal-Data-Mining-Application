@@ -156,14 +156,10 @@ def test_text_mining_category_exists():
     assert categories["text-mining"].enabled is True
 
 
-def test_text_mining_category_has_icon(app):
+def test_text_mining_category_has_no_sidebar_icon():
     categories = {category.id: category for category in build_categories()}
-    icon_name = categories["text-mining"].icon_name
 
-    assert [category.id for category in categories.values() if category.icon_name] == ["text-mining"]
-    assert icon_name == "text_mining"
-    assert (TEXT_MINING_ASSET_DIR / f"{icon_name}.svg").exists()
-    assert not get_widget_icon(icon_name).isNull()
+    assert categories["text-mining"].icon_name == ""
 
 
 def test_text_mining_category_contains_exact_person_a_widgets():
@@ -194,7 +190,7 @@ def test_text_mining_widgets_have_orange_like_svg_icons(app):
         assert not get_widget_icon(widget.icon_name).isNull()
 
 
-def test_sidebar_and_text_mining_catalog_render_icons(app):
+def test_sidebar_hides_text_mining_category_icon_and_catalog_renders_widget_icons(app):
     window = MainWindow()
     window._sidebar.set_current_category("text-mining")
     app.processEvents()
@@ -206,7 +202,7 @@ def test_sidebar_and_text_mining_catalog_render_icons(app):
         if card.widget_id in PERSON_A_TEXT_MINING_ICON_NAMES
     ]
 
-    assert not category_item.icon().isNull()
+    assert category_item.icon().isNull()
     assert len(cards) == 10
     assert all(not card.icon().isNull() for card in cards)
 

@@ -133,7 +133,7 @@ def build_categories() -> list[CategoryDefinition]:
         CategoryDefinition(id="model", label=i18n.t("Model")),
         CategoryDefinition(id="evaluate", label=i18n.t("Evaluate")),
         CategoryDefinition(id="unsupervised", label=i18n.t("Unsupervised")),
-        CategoryDefinition(id="text-mining", label=i18n.t("Text Mining"), icon_name="text_mining"),
+        CategoryDefinition(id="text-mining", label=i18n.t("Text Mining")),
     ]
 
 
