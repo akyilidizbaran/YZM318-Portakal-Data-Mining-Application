@@ -573,6 +573,45 @@ def test_main_window_can_route_create_corpus_output_to_corpus_widget(app):
     assert target_runtime.output_payload.port_label == "Corpus"
 
 
+def test_import_documents_output_can_update_connected_corpus_widget(app, tmp_path):
+    path = tmp_path / "imported.txt"
+    path.write_text("alpha beta gamma", encoding="utf-8")
+    source = ImportDocumentsScreen()
+    target = CorpusScreen()
+
+    result = source.import_paths((path,))
+    target.set_input_payload(source.current_output_payload())
+
+    assert result.errors == ()
+    assert source.current_output_payload().port_label == "Corpus"
+    assert source.current_output_payload().value == result.documents
+    assert target._table.rowCount() == 1
+    assert target._table.item(0, 0).text() == "imported.txt"
+    assert target._table.item(0, 2).text() == "alpha beta gamma"
+
+
+def test_main_window_can_route_import_documents_output_to_corpus_widget(app, tmp_path):
+    path = tmp_path / "workflow-import.txt"
+    path.write_text("imported workflow text", encoding="utf-8")
+    window = MainWindow()
+    source_record = window._workspace.canvas.add_workflow_node("text-import-documents")
+    target_record = window._workspace.canvas.add_workflow_node("text-corpus")
+    scene = window._workspace.canvas.workflow_scene
+
+    assert scene.create_connection(source_record.node_id, target_record.node_id)
+
+    source_runtime = window._node_runtimes[source_record.node_id]
+    target_runtime = window._node_runtimes[target_record.node_id]
+    source_runtime.screen.import_paths((path,))
+    app.processEvents()
+
+    assert isinstance(target_runtime.screen, CorpusScreen)
+    assert target_runtime.screen._table.rowCount() == 1
+    assert target_runtime.screen._table.item(0, 0).text() == "workflow-import.txt"
+    assert target_runtime.output_payload is not None
+    assert target_runtime.output_payload.port_label == "Corpus"
+
+
 def test_corpus_output_can_update_connected_preprocess_text_widget(app):
     source = CorpusScreen()
     target = PreprocessTextScreen()
@@ -687,6 +726,42 @@ def test_main_window_can_route_preprocess_text_output_to_bag_of_words_widget(app
     assert preprocess_runtime.screen._table.item(0, 2).text() == "this needs cleaning this"
     assert bow_runtime.screen._table.rowCount() == 2
     assert bow_runtime.screen._table.item(0, 0).text() == "Workflow Text"
+    assert bow_runtime.screen._table.horizontalHeaderItem(1).text() == "cleaning"
+    assert bow_runtime.screen._table.horizontalHeaderItem(2).text() == "needs"
+    assert bow_runtime.screen._table.horizontalHeaderItem(3).text() == "this"
+    assert bow_runtime.screen._table.item(0, 1).text() == "1"
+    assert bow_runtime.screen._table.item(0, 2).text() == "1"
+    assert bow_runtime.screen._table.item(0, 3).text() == "2"
+
+
+def test_main_window_can_route_import_documents_output_to_preprocess_text_and_bag_of_words(
+    app,
+    tmp_path,
+):
+    path = tmp_path / "workflow-source.txt"
+    path.write_text("This, NEEDS Cleaning! This.", encoding="utf-8")
+    window = MainWindow()
+    import_record = window._workspace.canvas.add_workflow_node("text-import-documents")
+    preprocess_record = window._workspace.canvas.add_workflow_node("text-preprocess")
+    bow_record = window._workspace.canvas.add_workflow_node("text-bag-of-words")
+    scene = window._workspace.canvas.workflow_scene
+
+    assert scene.create_connection(import_record.node_id, preprocess_record.node_id)
+    assert scene.create_connection(preprocess_record.node_id, bow_record.node_id)
+
+    import_runtime = window._node_runtimes[import_record.node_id]
+    preprocess_runtime = window._node_runtimes[preprocess_record.node_id]
+    bow_runtime = window._node_runtimes[bow_record.node_id]
+    import_runtime.screen.import_paths((path,))
+    app.processEvents()
+
+    assert isinstance(preprocess_runtime.screen, PreprocessTextScreen)
+    assert isinstance(bow_runtime.screen, BagOfWordsScreen)
+    assert preprocess_runtime.screen._table.rowCount() == 1
+    assert preprocess_runtime.screen._table.item(0, 0).text() == "workflow-source.txt"
+    assert preprocess_runtime.screen._table.item(0, 2).text() == "this needs cleaning this"
+    assert bow_runtime.screen._table.rowCount() == 2
+    assert bow_runtime.screen._table.item(0, 0).text() == "workflow-source.txt"
     assert bow_runtime.screen._table.horizontalHeaderItem(1).text() == "cleaning"
     assert bow_runtime.screen._table.horizontalHeaderItem(2).text() == "needs"
     assert bow_runtime.screen._table.horizontalHeaderItem(3).text() == "this"

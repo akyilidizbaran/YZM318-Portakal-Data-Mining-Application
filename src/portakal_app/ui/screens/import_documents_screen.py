@@ -18,6 +18,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from portakal_app.models import WorkflowPayload
 from portakal_app.ui.screens.corpus_screen import CorpusDocument, count_words
 from portakal_app.ui.screens.node_screen import WorkflowNodeScreenSupport
 from portakal_app.ui.shared.cards import SectionHeader
@@ -177,7 +178,11 @@ class ImportDocumentsScreen(QWidget, WorkflowNodeScreenSupport):
         self._documents = result.documents
         self._errors = result.errors
         self._render()
+        self._notify_output_changed()
         return result
+
+    def current_output_payload(self) -> WorkflowPayload:
+        return WorkflowPayload("Corpus", self._documents)
 
     def _render(self) -> None:
         word_count = sum(count_words(document.text) for document in self._documents)
