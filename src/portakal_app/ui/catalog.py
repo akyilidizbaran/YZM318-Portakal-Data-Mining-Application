@@ -1205,7 +1205,7 @@ def build_widgets() -> list[WidgetDefinition]:
             CorpusScreen,
             i18n.t("Browse a built-in sample text corpus."),
             "text_corpus",
-            (),
+            _inputs("Corpus"),
             _outputs("Corpus"),
         ),
         WidgetDefinition(

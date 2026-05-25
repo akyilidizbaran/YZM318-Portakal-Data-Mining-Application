@@ -14,6 +14,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from portakal_app.models import WorkflowPayload
 from portakal_app.ui.screens.node_screen import WorkflowNodeScreenSupport
 from portakal_app.ui.shared.cards import SectionHeader
 
@@ -68,11 +69,26 @@ def summarize_corpus(documents: Iterable[CorpusDocument]) -> CorpusSummary:
     return CorpusSummary(document_count, total_word_count, average)
 
 
+def corpus_documents_from_payload(value: object) -> tuple[CorpusDocument, ...] | None:
+    if isinstance(value, CorpusDocument):
+        return (value,)
+    if not isinstance(value, Sequence) or isinstance(value, (str, bytes, bytearray)):
+        return None
+
+    documents: list[CorpusDocument] = []
+    for item in value:
+        if not isinstance(item, CorpusDocument):
+            return None
+        documents.append(item)
+    return tuple(documents)
+
+
 class CorpusScreen(QWidget, WorkflowNodeScreenSupport):
     def __init__(self, parent: QWidget | None = None, documents: Sequence[CorpusDocument] | None = None) -> None:
         super().__init__(parent)
         self._init_workflow_node_support()
         self._documents = tuple(SAMPLE_CORPUS if documents is None else documents)
+        self._using_input_corpus = documents is not None
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(8, 8, 8, 8)
@@ -139,6 +155,27 @@ class CorpusScreen(QWidget, WorkflowNodeScreenSupport):
         layout.addWidget(self._table, 1)
         return frame
 
+    def set_input_payload(self, payload: WorkflowPayload | None) -> None:
+        if payload is None:
+            self._documents = tuple(SAMPLE_CORPUS)
+            self._using_input_corpus = False
+            self._render()
+            self._notify_output_changed()
+            return
+
+        documents = corpus_documents_from_payload(payload.value)
+        if documents is None:
+            self._documents = ()
+            self._using_input_corpus = True
+        else:
+            self._documents = documents
+            self._using_input_corpus = True
+        self._render()
+        self._notify_output_changed()
+
+    def current_output_payload(self) -> WorkflowPayload:
+        return WorkflowPayload("Corpus", self._documents)
+
     def _render(self) -> None:
         summary = summarize_corpus(self._documents)
         self._document_count_label.setText(f"Documents\n{summary.document_count}")
@@ -146,11 +183,15 @@ class CorpusScreen(QWidget, WorkflowNodeScreenSupport):
         self._average_word_count_label.setText(
             f"Avg Words / Document\n{summary.average_words_per_document:.1f}"
         )
-        self._status_label.setText(
-            "Built-in sample corpus is ready."
-            if self._documents
-            else "Corpus is empty. Add documents in a later import or creation step."
-        )
+        if self._documents and self._using_input_corpus:
+            status = "Input corpus is connected and displayed."
+        elif self._documents:
+            status = "Built-in sample corpus is ready."
+        elif self._using_input_corpus:
+            status = "Input corpus is connected but empty."
+        else:
+            status = "Corpus is empty. Add documents in a later import or creation step."
+        self._status_label.setText(status)
 
         self._table.setRowCount(len(self._documents))
         for row, document in enumerate(self._documents):

@@ -17,6 +17,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from portakal_app.models import WorkflowPayload
 from portakal_app.ui.screens.corpus_screen import CorpusDocument, count_words, summarize_corpus
 from portakal_app.ui.screens.node_screen import WorkflowNodeScreenSupport
 from portakal_app.ui.shared.cards import SectionHeader
@@ -199,6 +200,9 @@ class CreateCorpusScreen(QWidget, WorkflowNodeScreenSupport):
         self._documents = ()
         self._render()
         self._notify_output_changed()
+
+    def current_output_payload(self) -> WorkflowPayload:
+        return WorkflowPayload("Corpus", self._documents)
 
     def _render(self) -> None:
         summary = summarize_corpus(self._documents)

@@ -10,6 +10,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 pytest.importorskip("PySide6")
 
 from portakal_app.app import create_application
+from portakal_app.models import WorkflowPayload
 from portakal_app.ui import i18n
 from portakal_app.ui.catalog import build_categories, build_widgets
 from portakal_app.ui.icons import get_widget_icon
@@ -26,6 +27,8 @@ from portakal_app.ui.screens.bag_of_words_screen import (
 from portakal_app.ui.screens.corpus_screen import (
     CorpusDocument,
     CorpusScreen,
+    SAMPLE_CORPUS,
+    corpus_documents_from_payload,
     count_words,
     summarize_corpus,
 )
@@ -101,7 +104,7 @@ from portakal_app.ui.screens.wikipedia_screen import (
 
 
 PERSON_A_TEXT_MINING_WIDGETS = [
-    ("text-corpus", "Corpus", (), ("Corpus",)),
+    ("text-corpus", "Corpus", ("Corpus",), ("Corpus",)),
     ("text-import-documents", "Import Documents", (), ("Corpus",)),
     ("text-create-corpus", "Create Corpus", (), ("Corpus",)),
     ("text-the-guardian", "The Guardian", (), ("Corpus",)),
@@ -451,6 +454,36 @@ def test_empty_corpus_summary_and_screen_are_safe(app):
     assert "0 documents" in preview["summary"]
 
 
+def test_corpus_screen_accepts_input_payload_and_resets_to_sample(app):
+    documents = (
+        CorpusDocument("Manual One", "alpha beta", "Manual"),
+        CorpusDocument("Manual Two", "gamma delta epsilon", "Manual"),
+    )
+    screen = CorpusScreen()
+
+    screen.set_input_payload(WorkflowPayload("Corpus", documents))
+
+    assert screen._table.rowCount() == 2
+    assert screen._table.item(0, 0).text() == "Manual One"
+    assert screen._table.item(0, 1).text() == "Manual"
+    assert screen._document_count_label.text().endswith("2")
+    assert "Input corpus is connected" in screen._status_label.text()
+
+    screen.set_input_payload(None)
+
+    assert screen._table.rowCount() == len(SAMPLE_CORPUS)
+    assert screen._table.item(0, 0).text() == SAMPLE_CORPUS[0].title
+    assert "Built-in sample corpus" in screen._status_label.text()
+
+
+def test_corpus_payload_parser_rejects_non_corpus_items():
+    documents = (CorpusDocument("First", "one two"),)
+
+    assert corpus_documents_from_payload(documents) == documents
+    assert corpus_documents_from_payload("not a corpus") is None
+    assert corpus_documents_from_payload((object(),)) is None
+
+
 def test_create_corpus_document_uses_title_source_preview_and_word_count():
     document = make_document("Manual Note", "alpha beta gamma", "Notes", index=1)
 
@@ -498,6 +531,49 @@ def test_create_corpus_screen_adds_and_clears_documents(app):
 
     assert screen._table.rowCount() == 0
     assert screen.data_preview_snapshot()["rows"] == []
+
+
+def test_create_corpus_outputs_corpus_payload(app):
+    screen = CreateCorpusScreen()
+    document = screen.add_document("First", "one two", "Manual")
+
+    payload = screen.current_output_payload()
+
+    assert payload.port_label == "Corpus"
+    assert payload.value == (document,)
+
+
+def test_create_corpus_output_can_update_connected_corpus_widget(app):
+    source = CreateCorpusScreen()
+    target = CorpusScreen()
+    document = source.add_document("Connected", "one two three", "Manual")
+
+    target.set_input_payload(source.current_output_payload())
+
+    assert target._table.rowCount() == 1
+    assert target._table.item(0, 0).text() == "Connected"
+    assert target._table.item(0, 1).text() == "Manual"
+    assert target.current_output_payload().value == (document,)
+
+
+def test_main_window_can_route_create_corpus_output_to_corpus_widget(app):
+    window = MainWindow()
+    source_record = window._workspace.canvas.add_workflow_node("text-create-corpus")
+    target_record = window._workspace.canvas.add_workflow_node("text-corpus")
+    scene = window._workspace.canvas.workflow_scene
+
+    assert scene.create_connection(source_record.node_id, target_record.node_id)
+
+    source_runtime = window._node_runtimes[source_record.node_id]
+    target_runtime = window._node_runtimes[target_record.node_id]
+    source_runtime.screen.add_document("Workflow Doc", "alpha beta gamma", "Manual")
+    app.processEvents()
+
+    assert isinstance(target_runtime.screen, CorpusScreen)
+    assert target_runtime.screen._table.rowCount() == 1
+    assert target_runtime.screen._table.item(0, 0).text() == "Workflow Doc"
+    assert target_runtime.output_payload is not None
+    assert target_runtime.output_payload.port_label == "Corpus"
 
 
 def test_create_corpus_title_and_source_inputs_use_readable_text_color(app):
