@@ -404,6 +404,25 @@ def test_main_window_can_open_twitter_widget(app):
     assert isinstance(window._workspace.current_widget(), TwitterScreen)
 
 
+def test_text_source_widgets_expose_corpus_output_payloads(app):
+    screens = (
+        GuardianScreen(documents=(GuardianDocument("Guardian A", "one two", "The Guardian", "Tech"),)),
+        NYTimesScreen(documents=(NYTimesDocument("NYT A", "three four", "NY Times", "World"),)),
+        PubMedScreen(documents=(PubMedDocument("PubMed A", "five six", "PubMed", "123"),)),
+        TwitterScreen(documents=(TwitterDocument("42", "seven eight", "Twitter/X", "user"),)),
+        WikipediaScreen(documents=(CorpusDocument("Wiki A", "nine ten", "Wikipedia"),)),
+    )
+    expected_titles = ("Guardian A", "NYT A", "PubMed A", "Post 42", "Wiki A")
+
+    for screen, expected_title in zip(screens, expected_titles):
+        payload = screen.current_output_payload()
+
+        assert payload.port_label == "Corpus"
+        assert len(payload.value) == 1
+        assert isinstance(payload.value[0], CorpusDocument)
+        assert payload.value[0].title == expected_title
+
+
 def test_no_person_a_text_mining_widget_uses_placeholder_screen(app):
     widgets = {widget.id: widget for widget in build_widgets()}
 
@@ -611,6 +630,51 @@ def test_main_window_can_route_import_documents_output_to_corpus_widget(app, tmp
     assert target_runtime.screen._table.item(0, 0).text() == "workflow-import.txt"
     assert target_runtime.output_payload is not None
     assert target_runtime.output_payload.port_label == "Corpus"
+
+
+def test_pubmed_output_overrides_corpus_sample_and_updates_preprocess_text(app):
+    source = PubMedScreen(
+        documents=(PubMedDocument("Clinical Trial", "This NEEDS Cleaning.", "PubMed", "123"),)
+    )
+    corpus = CorpusScreen()
+    preprocess = PreprocessTextScreen()
+
+    corpus.set_input_payload(source.current_output_payload())
+    preprocess.set_input_payload(source.current_output_payload())
+
+    assert corpus._table.rowCount() == 1
+    assert corpus._table.item(0, 0).text() == "Clinical Trial"
+    assert corpus._table.item(0, 1).text() == "PubMed PMID 123"
+    assert "Input corpus is connected" in corpus._status_label.text()
+    assert preprocess._table.rowCount() == 1
+    assert preprocess._table.item(0, 0).text() == "Clinical Trial"
+    assert preprocess._table.item(0, 2).text() == "this needs cleaning"
+
+
+def test_main_window_can_route_pubmed_output_to_corpus_and_preprocess_text(app):
+    window = MainWindow()
+    pubmed_record = window._workspace.canvas.add_workflow_node("text-pubmed")
+    corpus_record = window._workspace.canvas.add_workflow_node("text-corpus")
+    preprocess_record = window._workspace.canvas.add_workflow_node("text-preprocess")
+    scene = window._workspace.canvas.workflow_scene
+
+    assert scene.create_connection(pubmed_record.node_id, corpus_record.node_id)
+    assert scene.create_connection(pubmed_record.node_id, preprocess_record.node_id)
+
+    pubmed_runtime = window._node_runtimes[pubmed_record.node_id]
+    corpus_runtime = window._node_runtimes[corpus_record.node_id]
+    preprocess_runtime = window._node_runtimes[preprocess_record.node_id]
+    pubmed_runtime.screen.fetch_articles()
+    app.processEvents()
+
+    expected_count = len(fallback_pubmed_documents())
+    assert isinstance(corpus_runtime.screen, CorpusScreen)
+    assert isinstance(preprocess_runtime.screen, PreprocessTextScreen)
+    assert corpus_runtime.screen._table.rowCount() == expected_count
+    assert corpus_runtime.screen._table.item(0, 0).text().startswith("PubMed Sample:")
+    assert corpus_runtime.screen._table.item(0, 0).text() != SAMPLE_CORPUS[0].title
+    assert preprocess_runtime.screen._table.rowCount() == expected_count
+    assert preprocess_runtime.screen._table.item(0, 0).text().startswith("PubMed Sample:")
 
 
 def test_corpus_output_can_update_connected_preprocess_text_widget(app):

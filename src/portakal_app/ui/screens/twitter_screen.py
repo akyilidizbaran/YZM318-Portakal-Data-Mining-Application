@@ -23,7 +23,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from portakal_app.ui.screens.corpus_screen import CorpusSummary, count_words
+from portakal_app.models import WorkflowPayload
+from portakal_app.ui.screens.corpus_screen import CorpusDocument, CorpusSummary, count_words
 from portakal_app.ui.screens.create_corpus_screen import preview_text
 from portakal_app.ui.screens.node_screen import WorkflowNodeScreenSupport
 from portakal_app.ui.shared.cards import SectionHeader
@@ -360,6 +361,9 @@ class TwitterScreen(QWidget, WorkflowNodeScreenSupport):
         self._notify_output_changed()
         return result
 
+    def current_output_payload(self) -> WorkflowPayload:
+        return WorkflowPayload("Corpus", twitter_documents_to_corpus(self._documents))
+
     def _render(self) -> None:
         summary = summarize_documents(self._documents)
         self._document_count_label.setText(f"Documents\n{summary.document_count}")
@@ -404,3 +408,16 @@ class TwitterScreen(QWidget, WorkflowNodeScreenSupport):
             "headers": ["Post ID", "Author", "Source", "Date", "Text Preview", "Words"],
             "rows": rows,
         }
+
+
+def twitter_documents_to_corpus(
+    documents: Sequence[TwitterDocument],
+) -> tuple[CorpusDocument, ...]:
+    return tuple(
+        CorpusDocument(
+            f"Post {document.post_id}",
+            document.text,
+            f"{document.source}: {document.author}" if document.author else document.source,
+        )
+        for document in documents
+    )
