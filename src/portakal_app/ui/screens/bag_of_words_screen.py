@@ -20,7 +20,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from portakal_app.ui.screens.corpus_screen import CorpusDocument
+from portakal_app.models import WorkflowPayload
+from portakal_app.ui.screens.corpus_screen import CorpusDocument, corpus_documents_from_payload
 from portakal_app.ui.screens.node_screen import WorkflowNodeScreenSupport
 from portakal_app.ui.shared.cards import SectionHeader
 
@@ -114,6 +115,7 @@ class BagOfWordsScreen(QWidget, WorkflowNodeScreenSupport):
         super().__init__(parent)
         self._init_workflow_node_support()
         self._documents = tuple(SAMPLE_BOW_DOCUMENTS if documents is None else documents)
+        self._using_input_corpus = documents is not None
         self._vocabulary: tuple[str, ...] = ()
         self._matrix: tuple[tuple[int, ...], ...] = ()
 
@@ -226,6 +228,19 @@ class BagOfWordsScreen(QWidget, WorkflowNodeScreenSupport):
 
     def set_documents(self, documents: Sequence[CorpusDocument]) -> None:
         self._documents = tuple(documents)
+        self._using_input_corpus = True
+        self.apply_options()
+
+    def set_input_payload(self, payload: WorkflowPayload | None) -> None:
+        if payload is None:
+            self._documents = tuple(SAMPLE_BOW_DOCUMENTS)
+            self._using_input_corpus = False
+            self.apply_options()
+            return
+
+        documents = corpus_documents_from_payload(payload.value)
+        self._documents = () if documents is None else documents
+        self._using_input_corpus = True
         self.apply_options()
 
     def _render(self) -> None:
@@ -234,11 +249,15 @@ class BagOfWordsScreen(QWidget, WorkflowNodeScreenSupport):
         self._vocabulary_size_label.setText(f"Vocabulary Size\n{summary.vocabulary_size}")
         self._total_token_count_label.setText(f"Total Tokens\n{summary.total_token_count}")
         self._most_frequent_term_label.setText(f"Most Frequent Term\n{summary.most_frequent_term}")
-        self._status_label.setText(
-            "Document-term matrix is ready."
-            if self._vocabulary
-            else "No vocabulary terms available for the current documents and threshold."
-        )
+        if self._vocabulary and self._using_input_corpus:
+            status = "Input corpus is connected and converted to a document-term matrix."
+        elif self._vocabulary:
+            status = "Sample document-term matrix is ready."
+        elif self._using_input_corpus:
+            status = "Input corpus is connected but produced no vocabulary terms."
+        else:
+            status = "No vocabulary terms available for the current documents and threshold."
+        self._status_label.setText(status)
 
         headers = ["Document", *self._vocabulary, "Total"]
         self._table.setColumnCount(len(headers))

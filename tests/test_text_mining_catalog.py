@@ -18,6 +18,7 @@ from portakal_app.ui.main_window import MainWindow
 from portakal_app.ui.shell.widget_catalog import WidgetCatalogButton
 from portakal_app.ui.screens.bag_of_words_screen import (
     BagOfWordsScreen,
+    SAMPLE_BOW_DOCUMENTS,
     build_document_term_matrix,
     build_vocabulary,
     summarize_bow,
@@ -628,6 +629,74 @@ def test_main_window_can_route_corpus_output_to_preprocess_text_widget(app):
     assert preprocess_runtime.output_payload.value == (
         CorpusDocument("Workflow Text", "this needs cleaning", "Manual"),
     )
+
+
+def test_bag_of_words_accepts_input_payload_and_resets_to_sample(app):
+    screen = BagOfWordsScreen()
+    documents = (CorpusDocument("Clean Text", "apple apple banana", "Manual"),)
+
+    screen.set_input_payload(WorkflowPayload("Corpus", documents))
+
+    assert screen._table.rowCount() == 2
+    assert screen._table.item(0, 0).text() == "Clean Text"
+    assert screen._table.horizontalHeaderItem(1).text() == "apple"
+    assert screen._table.horizontalHeaderItem(2).text() == "banana"
+    assert screen._table.item(0, 1).text() == "2"
+    assert screen._table.item(0, 2).text() == "1"
+    assert "Input corpus is connected" in screen._status_label.text()
+
+    screen.set_input_payload(None)
+
+    assert screen._table.item(0, 0).text() == SAMPLE_BOW_DOCUMENTS[0].title
+    assert "Sample document-term matrix" in screen._status_label.text()
+
+
+def test_preprocess_text_output_can_update_connected_bag_of_words_widget(app):
+    source = PreprocessTextScreen(
+        documents=(CorpusDocument("Needs Cleaning", "Hello, WORLD! Hello.", "Manual"),)
+    )
+    target = BagOfWordsScreen(documents=())
+
+    target.set_input_payload(source.current_output_payload())
+
+    assert target._table.rowCount() == 2
+    assert target._table.item(0, 0).text() == "Needs Cleaning"
+    assert target._table.horizontalHeaderItem(1).text() == "hello"
+    assert target._table.horizontalHeaderItem(2).text() == "world"
+    assert target._table.item(0, 1).text() == "2"
+    assert target._table.item(0, 2).text() == "1"
+    assert "3 total tokens" in target.data_preview_snapshot()["summary"]
+
+
+def test_main_window_can_route_preprocess_text_output_to_bag_of_words_widget(app):
+    window = MainWindow()
+    create_record = window._workspace.canvas.add_workflow_node("text-create-corpus")
+    corpus_record = window._workspace.canvas.add_workflow_node("text-corpus")
+    preprocess_record = window._workspace.canvas.add_workflow_node("text-preprocess")
+    bow_record = window._workspace.canvas.add_workflow_node("text-bag-of-words")
+    scene = window._workspace.canvas.workflow_scene
+
+    assert scene.create_connection(create_record.node_id, corpus_record.node_id)
+    assert scene.create_connection(corpus_record.node_id, preprocess_record.node_id)
+    assert scene.create_connection(preprocess_record.node_id, bow_record.node_id)
+
+    create_runtime = window._node_runtimes[create_record.node_id]
+    preprocess_runtime = window._node_runtimes[preprocess_record.node_id]
+    bow_runtime = window._node_runtimes[bow_record.node_id]
+    create_runtime.screen.add_document("Workflow Text", "This, NEEDS Cleaning! This.", "Manual")
+    app.processEvents()
+
+    assert isinstance(preprocess_runtime.screen, PreprocessTextScreen)
+    assert isinstance(bow_runtime.screen, BagOfWordsScreen)
+    assert preprocess_runtime.screen._table.item(0, 2).text() == "this needs cleaning this"
+    assert bow_runtime.screen._table.rowCount() == 2
+    assert bow_runtime.screen._table.item(0, 0).text() == "Workflow Text"
+    assert bow_runtime.screen._table.horizontalHeaderItem(1).text() == "cleaning"
+    assert bow_runtime.screen._table.horizontalHeaderItem(2).text() == "needs"
+    assert bow_runtime.screen._table.horizontalHeaderItem(3).text() == "this"
+    assert bow_runtime.screen._table.item(0, 1).text() == "1"
+    assert bow_runtime.screen._table.item(0, 2).text() == "1"
+    assert bow_runtime.screen._table.item(0, 3).text() == "2"
 
 
 def test_create_corpus_title_and_source_inputs_use_readable_text_color(app):
