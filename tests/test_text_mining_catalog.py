@@ -576,6 +576,60 @@ def test_main_window_can_route_create_corpus_output_to_corpus_widget(app):
     assert target_runtime.output_payload.port_label == "Corpus"
 
 
+def test_corpus_output_can_update_connected_preprocess_text_widget(app):
+    source = CorpusScreen()
+    target = PreprocessTextScreen()
+    documents = (CorpusDocument("Needs Cleaning", "Hello, WORLD!", "Manual"),)
+
+    source.set_input_payload(WorkflowPayload("Corpus", documents))
+    target.set_input_payload(source.current_output_payload())
+
+    assert target._table.rowCount() == 1
+    assert target._table.item(0, 0).text() == "Needs Cleaning"
+    assert target._table.item(0, 1).text() == "Hello, WORLD!"
+    assert target._table.item(0, 2).text() == "hello world"
+    assert "Input corpus is connected" in target._status_label.text()
+
+    payload = target.current_output_payload()
+    assert payload.port_label == "Corpus"
+    assert payload.value == (CorpusDocument("Needs Cleaning", "hello world", "Manual"),)
+
+    target.set_input_payload(None)
+
+    assert target._table.rowCount() == len(SAMPLE_CORPUS)
+    assert target._table.item(0, 0).text() == SAMPLE_CORPUS[0].title
+    assert "sample corpus" in target._status_label.text()
+
+
+def test_main_window_can_route_corpus_output_to_preprocess_text_widget(app):
+    window = MainWindow()
+    create_record = window._workspace.canvas.add_workflow_node("text-create-corpus")
+    corpus_record = window._workspace.canvas.add_workflow_node("text-corpus")
+    preprocess_record = window._workspace.canvas.add_workflow_node("text-preprocess")
+    scene = window._workspace.canvas.workflow_scene
+
+    assert scene.create_connection(create_record.node_id, corpus_record.node_id)
+    assert scene.create_connection(corpus_record.node_id, preprocess_record.node_id)
+
+    create_runtime = window._node_runtimes[create_record.node_id]
+    corpus_runtime = window._node_runtimes[corpus_record.node_id]
+    preprocess_runtime = window._node_runtimes[preprocess_record.node_id]
+    create_runtime.screen.add_document("Workflow Text", "This, NEEDS Cleaning!", "Manual")
+    app.processEvents()
+
+    assert isinstance(corpus_runtime.screen, CorpusScreen)
+    assert isinstance(preprocess_runtime.screen, PreprocessTextScreen)
+    assert corpus_runtime.screen._table.rowCount() == 1
+    assert preprocess_runtime.screen._table.rowCount() == 1
+    assert preprocess_runtime.screen._table.item(0, 0).text() == "Workflow Text"
+    assert preprocess_runtime.screen._table.item(0, 2).text() == "this needs cleaning"
+    assert preprocess_runtime.output_payload is not None
+    assert preprocess_runtime.output_payload.port_label == "Corpus"
+    assert preprocess_runtime.output_payload.value == (
+        CorpusDocument("Workflow Text", "this needs cleaning", "Manual"),
+    )
+
+
 def test_create_corpus_title_and_source_inputs_use_readable_text_color(app):
     screen = CreateCorpusScreen()
 

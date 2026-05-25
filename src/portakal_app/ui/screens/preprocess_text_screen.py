@@ -18,9 +18,11 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from portakal_app.models import WorkflowPayload
 from portakal_app.ui.screens.corpus_screen import (
     CorpusDocument,
     SAMPLE_CORPUS,
+    corpus_documents_from_payload,
     count_words,
 )
 from portakal_app.ui.screens.create_corpus_screen import preview_text
@@ -165,6 +167,7 @@ class PreprocessTextScreen(QWidget, WorkflowNodeScreenSupport):
         super().__init__(parent)
         self._init_workflow_node_support()
         self._original_documents = tuple(SAMPLE_CORPUS if documents is None else documents)
+        self._using_input_corpus = documents is not None
         self._processed_documents: tuple[CorpusDocument, ...] = ()
 
         layout = QVBoxLayout(self)
@@ -289,7 +292,23 @@ class PreprocessTextScreen(QWidget, WorkflowNodeScreenSupport):
 
     def set_documents(self, documents: Sequence[CorpusDocument]) -> None:
         self._original_documents = tuple(documents)
+        self._using_input_corpus = True
         self.apply_preprocessing()
+
+    def set_input_payload(self, payload: WorkflowPayload | None) -> None:
+        if payload is None:
+            self._original_documents = tuple(SAMPLE_CORPUS)
+            self._using_input_corpus = False
+            self.apply_preprocessing()
+            return
+
+        documents = corpus_documents_from_payload(payload.value)
+        self._original_documents = () if documents is None else documents
+        self._using_input_corpus = True
+        self.apply_preprocessing()
+
+    def current_output_payload(self) -> WorkflowPayload:
+        return WorkflowPayload("Corpus", self._processed_documents)
 
     def _render(self) -> None:
         summary = summarize_preprocessing(self._original_documents, self._processed_documents)
@@ -298,11 +317,15 @@ class PreprocessTextScreen(QWidget, WorkflowNodeScreenSupport):
         self._processed_words_label.setText(f"Processed Words\n{summary.total_processed_words}")
         self._removed_words_label.setText(f"Removed Words\n{summary.removed_word_count}")
 
-        self._status_label.setText(
-            "Preprocessed sample corpus is ready."
-            if self._original_documents
-            else "No documents available for preprocessing."
-        )
+        if self._original_documents and self._using_input_corpus:
+            status = "Input corpus is connected and preprocessed."
+        elif self._original_documents:
+            status = "Preprocessed sample corpus is ready."
+        elif self._using_input_corpus:
+            status = "Input corpus is connected but empty."
+        else:
+            status = "No documents available for preprocessing."
+        self._status_label.setText(status)
 
         self._table.setRowCount(len(self._original_documents))
         document_pairs = zip(self._original_documents, self._processed_documents)
