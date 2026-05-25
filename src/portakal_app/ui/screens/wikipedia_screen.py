@@ -30,6 +30,7 @@ from portakal_app.ui.screens.corpus_screen import (
 from portakal_app.ui.screens.create_corpus_screen import preview_text
 from portakal_app.ui.screens.node_screen import WorkflowNodeScreenSupport
 from portakal_app.ui.shared.cards import SectionHeader
+from portakal_app.ui.shared.readable_inputs import apply_readable_line_edit_style
 
 
 DEFAULT_WIKIPEDIA_LANGUAGE = "en"
@@ -282,11 +283,13 @@ class WikipediaScreen(QWidget, WorkflowNodeScreenSupport):
 
         self._query_input = QLineEdit(self)
         self._query_input.setPlaceholderText("Search Wikipedia...")
+        apply_readable_line_edit_style(self._query_input)
         layout.addWidget(self._query_input, 1)
 
         self._language_input = QLineEdit(DEFAULT_WIKIPEDIA_LANGUAGE, self)
         self._language_input.setPlaceholderText(DEFAULT_WIKIPEDIA_LANGUAGE)
         self._language_input.setMaximumWidth(70)
+        apply_readable_line_edit_style(self._language_input)
         layout.addWidget(QLabel("Language", self))
         layout.addWidget(self._language_input)
 

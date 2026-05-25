@@ -27,6 +27,10 @@ from portakal_app.ui.screens.corpus_screen import CorpusSummary, count_words
 from portakal_app.ui.screens.create_corpus_screen import preview_text
 from portakal_app.ui.screens.node_screen import WorkflowNodeScreenSupport
 from portakal_app.ui.shared.cards import SectionHeader
+from portakal_app.ui.shared.readable_inputs import (
+    apply_readable_line_edit_style,
+    apply_readable_spin_box_style,
+)
 
 
 DEFAULT_GUARDIAN_LIMIT = 5
@@ -282,11 +286,13 @@ class GuardianScreen(QWidget, WorkflowNodeScreenSupport):
 
         self._query_input = QLineEdit(self)
         self._query_input.setPlaceholderText("Search Guardian articles...")
+        apply_readable_line_edit_style(self._query_input)
         layout.addWidget(self._query_input, 1)
 
         self._section_input = QLineEdit(self)
         self._section_input.setPlaceholderText("Optional section")
         self._section_input.setMaximumWidth(150)
+        apply_readable_line_edit_style(self._section_input)
         layout.addWidget(QLabel("Section", self))
         layout.addWidget(self._section_input)
 
@@ -294,6 +300,7 @@ class GuardianScreen(QWidget, WorkflowNodeScreenSupport):
         self._limit_spinbox = QSpinBox(self)
         self._limit_spinbox.setRange(1, 20)
         self._limit_spinbox.setValue(DEFAULT_GUARDIAN_LIMIT)
+        apply_readable_spin_box_style(self._limit_spinbox)
         layout.addWidget(self._limit_spinbox)
 
         self._fetch_button = QPushButton("Fetch", self)

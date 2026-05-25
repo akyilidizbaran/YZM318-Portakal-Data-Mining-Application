@@ -706,6 +706,27 @@ def test_create_corpus_title_and_source_inputs_use_readable_text_color(app):
     assert "color: #ffffff" in screen._source_input.styleSheet()
 
 
+def test_text_source_widget_inputs_use_readable_text_color(app):
+    screens = (
+        GuardianScreen(),
+        NYTimesScreen(),
+        PubMedScreen(),
+        TwitterScreen(),
+        WikipediaScreen(),
+    )
+
+    for screen in screens:
+        assert "color: #ffffff" in screen._query_input.styleSheet()
+
+    assert "color: #ffffff" in screens[0]._section_input.styleSheet()
+    assert "color: #ffffff" in screens[0]._limit_spinbox.styleSheet()
+    assert "color: #ffffff" in screens[1]._section_input.styleSheet()
+    assert "color: #ffffff" in screens[1]._limit_spinbox.styleSheet()
+    assert "color: #ffffff" in screens[2]._limit_spinbox.styleSheet()
+    assert "color: #ffffff" in screens[3]._limit_spinbox.styleSheet()
+    assert "color: #ffffff" in screens[4]._language_input.styleSheet()
+
+
 def test_preprocess_text_lowercase_works():
     assert preprocess_text(
         "Hello WORLD",
