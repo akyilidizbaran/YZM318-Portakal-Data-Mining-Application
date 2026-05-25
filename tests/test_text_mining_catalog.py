@@ -18,7 +18,6 @@ from portakal_app.ui.main_window import MainWindow
 from portakal_app.ui.shell.widget_catalog import WidgetCatalogButton
 from portakal_app.ui.screens.bag_of_words_screen import (
     BagOfWordsScreen,
-    SAMPLE_BOW_DOCUMENTS,
     build_document_term_matrix,
     build_vocabulary,
     summarize_bow,
@@ -272,7 +271,8 @@ def test_text_mining_preprocess_text_widget_uses_real_screen(app):
 
     assert isinstance(screen, PreprocessTextScreen)
     assert not isinstance(screen, PlaceholderScreen)
-    assert screen._table.rowCount() == 5
+    assert screen._table.rowCount() == 0
+    assert "Connect a Corpus input" in screen._status_label.text()
 
 
 def test_main_window_can_open_preprocess_text_widget(app):
@@ -291,7 +291,8 @@ def test_text_mining_bag_of_words_widget_uses_real_screen(app):
 
     assert isinstance(screen, BagOfWordsScreen)
     assert not isinstance(screen, PlaceholderScreen)
-    assert screen._table.rowCount() > 0
+    assert screen._table.rowCount() == 0
+    assert "Connect a Corpus input" in screen._status_label.text()
 
 
 def test_main_window_can_open_bag_of_words_widget(app):
@@ -632,9 +633,9 @@ def test_corpus_output_can_update_connected_preprocess_text_widget(app):
 
     target.set_input_payload(None)
 
-    assert target._table.rowCount() == len(SAMPLE_CORPUS)
-    assert target._table.item(0, 0).text() == SAMPLE_CORPUS[0].title
-    assert "sample corpus" in target._status_label.text()
+    assert target._table.rowCount() == 0
+    assert target.current_output_payload().value == ()
+    assert "Connect a Corpus input" in target._status_label.text()
 
 
 def test_main_window_can_route_corpus_output_to_preprocess_text_widget(app):
@@ -666,7 +667,26 @@ def test_main_window_can_route_corpus_output_to_preprocess_text_widget(app):
     )
 
 
-def test_bag_of_words_accepts_input_payload_and_resets_to_sample(app):
+def test_main_window_can_route_create_corpus_output_directly_to_preprocess_text_widget(app):
+    window = MainWindow()
+    create_record = window._workspace.canvas.add_workflow_node("text-create-corpus")
+    preprocess_record = window._workspace.canvas.add_workflow_node("text-preprocess")
+    scene = window._workspace.canvas.workflow_scene
+
+    assert scene.create_connection(create_record.node_id, preprocess_record.node_id)
+
+    create_runtime = window._node_runtimes[create_record.node_id]
+    preprocess_runtime = window._node_runtimes[preprocess_record.node_id]
+    create_runtime.screen.add_document("Direct Text", "This, NEEDS Cleaning!", "Manual")
+    app.processEvents()
+
+    assert isinstance(preprocess_runtime.screen, PreprocessTextScreen)
+    assert preprocess_runtime.screen._table.rowCount() == 1
+    assert preprocess_runtime.screen._table.item(0, 0).text() == "Direct Text"
+    assert preprocess_runtime.screen._table.item(0, 2).text() == "this needs cleaning"
+
+
+def test_bag_of_words_accepts_input_payload_and_resets_to_empty(app):
     screen = BagOfWordsScreen()
     documents = (CorpusDocument("Clean Text", "apple apple banana", "Manual"),)
 
@@ -682,8 +702,8 @@ def test_bag_of_words_accepts_input_payload_and_resets_to_sample(app):
 
     screen.set_input_payload(None)
 
-    assert screen._table.item(0, 0).text() == SAMPLE_BOW_DOCUMENTS[0].title
-    assert "Sample document-term matrix" in screen._status_label.text()
+    assert screen._table.rowCount() == 0
+    assert "Connect a Corpus input" in screen._status_label.text()
 
 
 def test_preprocess_text_output_can_update_connected_bag_of_words_widget(app):
@@ -701,6 +721,28 @@ def test_preprocess_text_output_can_update_connected_bag_of_words_widget(app):
     assert target._table.item(0, 1).text() == "2"
     assert target._table.item(0, 2).text() == "1"
     assert "3 total tokens" in target.data_preview_snapshot()["summary"]
+
+
+def test_main_window_can_route_create_corpus_output_directly_to_bag_of_words(app):
+    window = MainWindow()
+    create_record = window._workspace.canvas.add_workflow_node("text-create-corpus")
+    bow_record = window._workspace.canvas.add_workflow_node("text-bag-of-words")
+    scene = window._workspace.canvas.workflow_scene
+
+    assert scene.create_connection(create_record.node_id, bow_record.node_id)
+
+    create_runtime = window._node_runtimes[create_record.node_id]
+    bow_runtime = window._node_runtimes[bow_record.node_id]
+    create_runtime.screen.add_document("Direct Bag", "apple apple banana", "Manual")
+    app.processEvents()
+
+    assert isinstance(bow_runtime.screen, BagOfWordsScreen)
+    assert bow_runtime.screen._table.rowCount() == 2
+    assert bow_runtime.screen._table.item(0, 0).text() == "Direct Bag"
+    assert bow_runtime.screen._table.horizontalHeaderItem(1).text() == "apple"
+    assert bow_runtime.screen._table.horizontalHeaderItem(2).text() == "banana"
+    assert bow_runtime.screen._table.item(0, 1).text() == "2"
+    assert bow_runtime.screen._table.item(0, 2).text() == "1"
 
 
 def test_main_window_can_route_preprocess_text_output_to_bag_of_words_widget(app):
@@ -732,6 +774,30 @@ def test_main_window_can_route_preprocess_text_output_to_bag_of_words_widget(app
     assert bow_runtime.screen._table.item(0, 1).text() == "1"
     assert bow_runtime.screen._table.item(0, 2).text() == "1"
     assert bow_runtime.screen._table.item(0, 3).text() == "2"
+
+
+def test_main_window_can_route_import_documents_output_directly_to_bag_of_words(app, tmp_path):
+    path = tmp_path / "bag-source.txt"
+    path.write_text("apple apple banana", encoding="utf-8")
+    window = MainWindow()
+    import_record = window._workspace.canvas.add_workflow_node("text-import-documents")
+    bow_record = window._workspace.canvas.add_workflow_node("text-bag-of-words")
+    scene = window._workspace.canvas.workflow_scene
+
+    assert scene.create_connection(import_record.node_id, bow_record.node_id)
+
+    import_runtime = window._node_runtimes[import_record.node_id]
+    bow_runtime = window._node_runtimes[bow_record.node_id]
+    import_runtime.screen.import_paths((path,))
+    app.processEvents()
+
+    assert isinstance(bow_runtime.screen, BagOfWordsScreen)
+    assert bow_runtime.screen._table.rowCount() == 2
+    assert bow_runtime.screen._table.item(0, 0).text() == "bag-source.txt"
+    assert bow_runtime.screen._table.horizontalHeaderItem(1).text() == "apple"
+    assert bow_runtime.screen._table.horizontalHeaderItem(2).text() == "banana"
+    assert bow_runtime.screen._table.item(0, 1).text() == "2"
+    assert bow_runtime.screen._table.item(0, 2).text() == "1"
 
 
 def test_main_window_can_route_import_documents_output_to_preprocess_text_and_bag_of_words(

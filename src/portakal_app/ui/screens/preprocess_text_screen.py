@@ -21,7 +21,6 @@ from PySide6.QtWidgets import (
 from portakal_app.models import WorkflowPayload
 from portakal_app.ui.screens.corpus_screen import (
     CorpusDocument,
-    SAMPLE_CORPUS,
     corpus_documents_from_payload,
     count_words,
 )
@@ -166,7 +165,7 @@ class PreprocessTextScreen(QWidget, WorkflowNodeScreenSupport):
     ) -> None:
         super().__init__(parent)
         self._init_workflow_node_support()
-        self._original_documents = tuple(SAMPLE_CORPUS if documents is None else documents)
+        self._original_documents = tuple(() if documents is None else documents)
         self._using_input_corpus = documents is not None
         self._processed_documents: tuple[CorpusDocument, ...] = ()
 
@@ -297,7 +296,7 @@ class PreprocessTextScreen(QWidget, WorkflowNodeScreenSupport):
 
     def set_input_payload(self, payload: WorkflowPayload | None) -> None:
         if payload is None:
-            self._original_documents = tuple(SAMPLE_CORPUS)
+            self._original_documents = ()
             self._using_input_corpus = False
             self.apply_preprocessing()
             return
@@ -319,12 +318,10 @@ class PreprocessTextScreen(QWidget, WorkflowNodeScreenSupport):
 
         if self._original_documents and self._using_input_corpus:
             status = "Input corpus is connected and preprocessed."
-        elif self._original_documents:
-            status = "Preprocessed sample corpus is ready."
         elif self._using_input_corpus:
             status = "Input corpus is connected but empty."
         else:
-            status = "No documents available for preprocessing."
+            status = "Connect a Corpus input to preprocess documents."
         self._status_label.setText(status)
 
         self._table.setRowCount(len(self._original_documents))

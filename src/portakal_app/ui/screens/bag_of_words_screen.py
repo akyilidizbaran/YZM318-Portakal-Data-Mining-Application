@@ -26,14 +26,6 @@ from portakal_app.ui.screens.node_screen import WorkflowNodeScreenSupport
 from portakal_app.ui.shared.cards import SectionHeader
 
 
-SAMPLE_BOW_DOCUMENTS: tuple[CorpusDocument, ...] = (
-    CorpusDocument("Document 1", "data mining workflows explore data"),
-    CorpusDocument("Document 2", "text mining converts text into features"),
-    CorpusDocument("Document 3", "features summarize documents for models"),
-    CorpusDocument("Document 4", "data workflows can inspect document features"),
-)
-
-
 @dataclass(frozen=True)
 class BagOfWordsSummary:
     document_count: int
@@ -114,7 +106,7 @@ class BagOfWordsScreen(QWidget, WorkflowNodeScreenSupport):
     ) -> None:
         super().__init__(parent)
         self._init_workflow_node_support()
-        self._documents = tuple(SAMPLE_BOW_DOCUMENTS if documents is None else documents)
+        self._documents = tuple(() if documents is None else documents)
         self._using_input_corpus = documents is not None
         self._vocabulary: tuple[str, ...] = ()
         self._matrix: tuple[tuple[int, ...], ...] = ()
@@ -233,7 +225,7 @@ class BagOfWordsScreen(QWidget, WorkflowNodeScreenSupport):
 
     def set_input_payload(self, payload: WorkflowPayload | None) -> None:
         if payload is None:
-            self._documents = tuple(SAMPLE_BOW_DOCUMENTS)
+            self._documents = ()
             self._using_input_corpus = False
             self.apply_options()
             return
@@ -251,12 +243,10 @@ class BagOfWordsScreen(QWidget, WorkflowNodeScreenSupport):
         self._most_frequent_term_label.setText(f"Most Frequent Term\n{summary.most_frequent_term}")
         if self._vocabulary and self._using_input_corpus:
             status = "Input corpus is connected and converted to a document-term matrix."
-        elif self._vocabulary:
-            status = "Sample document-term matrix is ready."
         elif self._using_input_corpus:
             status = "Input corpus is connected but produced no vocabulary terms."
         else:
-            status = "No vocabulary terms available for the current documents and threshold."
+            status = "Connect a Corpus input to build a document-term matrix."
         self._status_label.setText(status)
 
         headers = ["Document", *self._vocabulary, "Total"]
