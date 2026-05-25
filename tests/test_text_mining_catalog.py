@@ -493,6 +493,16 @@ def test_corpus_screen_accepts_input_payload_and_resets_to_sample(app):
     assert "Built-in sample corpus" in screen._status_label.text()
 
 
+def test_corpus_screen_any_connected_input_overrides_sample_even_when_empty(app):
+    screen = CorpusScreen()
+
+    screen.set_input_payload(WorkflowPayload("Corpus", ()))
+
+    assert screen._table.rowCount() == 0
+    assert screen.current_output_payload().value == ()
+    assert "Input corpus is connected but empty" in screen._status_label.text()
+
+
 def test_corpus_payload_parser_rejects_non_corpus_items():
     documents = (CorpusDocument("First", "one two"),)
 
@@ -573,6 +583,17 @@ def test_create_corpus_output_can_update_connected_corpus_widget(app):
     assert target.current_output_payload().value == (document,)
 
 
+def test_create_corpus_empty_output_overrides_corpus_sample(app):
+    source = CreateCorpusScreen()
+    target = CorpusScreen()
+
+    target.set_input_payload(source.current_output_payload())
+
+    assert target._table.rowCount() == 0
+    assert target.current_output_payload().value == ()
+    assert "Input corpus is connected but empty" in target._status_label.text()
+
+
 def test_main_window_can_route_create_corpus_output_to_corpus_widget(app):
     window = MainWindow()
     source_record = window._workspace.canvas.add_workflow_node("text-create-corpus")
@@ -608,6 +629,17 @@ def test_import_documents_output_can_update_connected_corpus_widget(app, tmp_pat
     assert target._table.rowCount() == 1
     assert target._table.item(0, 0).text() == "imported.txt"
     assert target._table.item(0, 2).text() == "alpha beta gamma"
+
+
+def test_import_documents_empty_output_overrides_corpus_sample(app):
+    source = ImportDocumentsScreen()
+    target = CorpusScreen()
+
+    target.set_input_payload(source.current_output_payload())
+
+    assert target._table.rowCount() == 0
+    assert target.current_output_payload().value == ()
+    assert "Input corpus is connected but empty" in target._status_label.text()
 
 
 def test_main_window_can_route_import_documents_output_to_corpus_widget(app, tmp_path):
@@ -649,6 +681,41 @@ def test_pubmed_output_overrides_corpus_sample_and_updates_preprocess_text(app):
     assert preprocess._table.rowCount() == 1
     assert preprocess._table.item(0, 0).text() == "Clinical Trial"
     assert preprocess._table.item(0, 2).text() == "this needs cleaning"
+
+
+def test_all_text_source_outputs_override_corpus_sample(app, tmp_path):
+    import_path = tmp_path / "import-source.txt"
+    import_path.write_text("imported text", encoding="utf-8")
+    source_screens = (
+        CreateCorpusScreen(),
+        ImportDocumentsScreen(),
+        GuardianScreen(documents=(GuardianDocument("Guardian Source", "one two", "The Guardian"),)),
+        NYTimesScreen(documents=(NYTimesDocument("NYT Source", "three four", "NY Times"),)),
+        PubMedScreen(documents=(PubMedDocument("PubMed Source", "five six", "PubMed", "123"),)),
+        TwitterScreen(documents=(TwitterDocument("42", "seven eight", "Twitter/X", "user"),)),
+        WikipediaScreen(documents=(CorpusDocument("Wiki Source", "nine ten", "Wikipedia"),)),
+    )
+    source_screens[0].add_document("Create Source", "created text", "Manual")
+    source_screens[1].import_paths((import_path,))
+    expected_titles = (
+        "Create Source",
+        "import-source.txt",
+        "Guardian Source",
+        "NYT Source",
+        "PubMed Source",
+        "Post 42",
+        "Wiki Source",
+    )
+
+    for source, expected_title in zip(source_screens, expected_titles):
+        corpus = CorpusScreen()
+
+        corpus.set_input_payload(source.current_output_payload())
+
+        assert corpus._table.rowCount() == 1
+        assert corpus._table.item(0, 0).text() == expected_title
+        assert corpus._table.item(0, 0).text() != SAMPLE_CORPUS[0].title
+        assert "Input corpus is connected" in corpus._status_label.text()
 
 
 def test_main_window_can_route_pubmed_output_to_corpus_and_preprocess_text(app):
