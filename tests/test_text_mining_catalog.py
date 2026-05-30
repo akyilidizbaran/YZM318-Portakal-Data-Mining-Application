@@ -32,11 +32,14 @@ from portakal_app.ui.screens.corpus_screen import (
     count_words,
     summarize_corpus,
 )
+from portakal_app.ui.screens.corpus_viewer_screen import CorpusViewerScreen
 from portakal_app.ui.screens.create_corpus_screen import (
     CreateCorpusScreen,
     make_document,
     preview_text,
 )
+from portakal_app.ui.screens.document_map_screen import DocumentMapScreen, build_document_map
+from portakal_app.ui.screens.extract_keywords_screen import ExtractKeywordsScreen, extract_keywords
 from portakal_app.ui.screens.guardian_screen import (
     GuardianDocument,
     GuardianScreen,
@@ -91,6 +94,12 @@ from portakal_app.ui.screens.twitter_screen import (
     parse_twitter_response,
     summarize_documents as summarize_twitter_documents,
 )
+from portakal_app.ui.screens.text_statistics_screen import (
+    TextStatisticsScreen,
+    summarize_text_statistics,
+)
+from portakal_app.ui.screens.sentiment_analysis_screen import SentimentAnalysisScreen, analyze_sentiment
+from portakal_app.ui.screens.topic_modelling_screen import TopicModellingScreen, build_topic_model
 from portakal_app.ui.screens.wikipedia_screen import (
     WikipediaScreen,
     build_wikipedia_search_url,
@@ -101,10 +110,13 @@ from portakal_app.ui.screens.wikipedia_screen import (
     parse_wikipedia_summary_response,
     summarize_documents,
 )
+from portakal_app.ui.screens.word_cloud_screen import WordCloudScreen, cloud_word_frequencies
+from portakal_app.ui.screens.word_list_screen import WordListScreen, build_word_list
 
 
 PERSON_A_TEXT_MINING_WIDGETS = [
     ("text-corpus", "Corpus", ("Corpus",), ("Corpus",)),
+    ("text-corpus-viewer", "Corpus Viewer", ("Corpus",), ("Corpus",)),
     ("text-import-documents", "Import Documents", (), ("Corpus",)),
     ("text-create-corpus", "Create Corpus", (), ("Corpus",)),
     ("text-the-guardian", "The Guardian", (), ("Corpus",)),
@@ -114,10 +126,18 @@ PERSON_A_TEXT_MINING_WIDGETS = [
     ("text-wikipedia", "Wikipedia", (), ("Corpus",)),
     ("text-preprocess", "Preprocess Text", ("Corpus",), ("Corpus",)),
     ("text-bag-of-words", "Bag of Words", ("Corpus",), ("Data",)),
+    ("text-statistics", "Statistics", ("Corpus",), ()),
+    ("text-word-list", "Word List", ("Corpus",), ("Words",)),
+    ("text-word-cloud", "Word Cloud", ("Corpus",), ()),
+    ("text-extract-keywords", "Extract Keywords", ("Corpus",), ("Keywords",)),
+    ("text-sentiment-analysis", "Sentiment Analysis", ("Corpus",), ()),
+    ("text-topic-modelling", "Topic Modelling", ("Corpus",), ("Topics",)),
+    ("text-document-map", "Document Map", ("Corpus",), ()),
 ]
 
 PERSON_A_TEXT_MINING_ICON_NAMES = {
     "text-corpus": "text_corpus",
+    "text-corpus-viewer": "text_corpus",
     "text-import-documents": "text_import_documents",
     "text-create-corpus": "text_create_corpus",
     "text-the-guardian": "text_the_guardian",
@@ -127,6 +147,13 @@ PERSON_A_TEXT_MINING_ICON_NAMES = {
     "text-wikipedia": "text_wikipedia",
     "text-preprocess": "text_preprocess",
     "text-bag-of-words": "text_bag_of_words",
+    "text-statistics": "stats",
+    "text-word-list": "text_bag_of_words",
+    "text-word-cloud": "text_mining",
+    "text-extract-keywords": "text_bag_of_words",
+    "text-sentiment-analysis": "stats",
+    "text-topic-modelling": "text_mining",
+    "text-document-map": "mds",
 }
 
 TEXT_MINING_ASSET_DIR = Path(__file__).resolve().parents[1] / "src" / "portakal_app" / "ui" / "assets"
@@ -185,7 +212,8 @@ def test_text_mining_widgets_have_orange_like_svg_icons(app):
         widget = widgets[widget_id]
 
         assert widget.icon_name == expected_icon_name
-        assert (TEXT_MINING_ASSET_DIR / f"{widget.icon_name}.svg").exists()
+        if widget.icon_name.startswith("text_"):
+            assert (TEXT_MINING_ASSET_DIR / f"{widget.icon_name}.svg").exists()
         assert not get_widget_icon(widget.icon_name).isNull()
 
 
@@ -202,7 +230,7 @@ def test_sidebar_hides_text_mining_category_icon_and_catalog_renders_widget_icon
     ]
 
     assert category_item.icon().isNull()
-    assert len(cards) == 10
+    assert len(cards) == len(PERSON_A_TEXT_MINING_ICON_NAMES)
     assert all(not card.icon().isNull() for card in cards)
 
 
@@ -224,6 +252,26 @@ def test_main_window_can_open_text_corpus_widget(app):
     window._show_widget("text-corpus")
 
     assert isinstance(window._workspace.current_widget(), CorpusScreen)
+
+
+def test_text_mining_corpus_viewer_widget_uses_real_screen(app):
+    widgets = {widget.id: widget for widget in build_widgets()}
+
+    screen = widgets["text-corpus-viewer"].screen_factory()
+
+    assert isinstance(screen, CorpusViewerScreen)
+    assert not isinstance(screen, PlaceholderScreen)
+    assert screen._table.rowCount() == 0
+    assert "Connect a Corpus input" in screen._status_label.text()
+
+
+def test_main_window_can_open_corpus_viewer_widget(app):
+    window = MainWindow()
+
+    window._workspace.canvas.add_workflow_node("text-corpus-viewer")
+    window._show_widget("text-corpus-viewer")
+
+    assert isinstance(window._workspace.current_widget(), CorpusViewerScreen)
 
 
 def test_text_mining_import_documents_widget_uses_real_screen(app):
@@ -302,6 +350,146 @@ def test_main_window_can_open_bag_of_words_widget(app):
     window._show_widget("text-bag-of-words")
 
     assert isinstance(window._workspace.current_widget(), BagOfWordsScreen)
+
+
+def test_text_mining_statistics_widget_uses_real_screen(app):
+    widgets = {widget.id: widget for widget in build_widgets()}
+
+    screen = widgets["text-statistics"].screen_factory()
+
+    assert isinstance(screen, TextStatisticsScreen)
+    assert not isinstance(screen, PlaceholderScreen)
+    assert screen._table.rowCount() == 0
+    assert "Connect a Corpus input" in screen._status_label.text()
+
+
+def test_main_window_can_open_statistics_widget(app):
+    window = MainWindow()
+
+    window._workspace.canvas.add_workflow_node("text-statistics")
+    window._show_widget("text-statistics")
+
+    assert isinstance(window._workspace.current_widget(), TextStatisticsScreen)
+
+
+def test_text_mining_word_list_widget_uses_real_screen(app):
+    widgets = {widget.id: widget for widget in build_widgets()}
+
+    screen = widgets["text-word-list"].screen_factory()
+
+    assert isinstance(screen, WordListScreen)
+    assert not isinstance(screen, PlaceholderScreen)
+    assert screen._table.rowCount() == 0
+    assert "Connect a Corpus input" in screen._status_label.text()
+
+
+def test_main_window_can_open_word_list_widget(app):
+    window = MainWindow()
+
+    window._workspace.canvas.add_workflow_node("text-word-list")
+    window._show_widget("text-word-list")
+
+    assert isinstance(window._workspace.current_widget(), WordListScreen)
+
+
+def test_text_mining_word_cloud_widget_uses_real_screen(app):
+    widgets = {widget.id: widget for widget in build_widgets()}
+
+    screen = widgets["text-word-cloud"].screen_factory()
+
+    assert isinstance(screen, WordCloudScreen)
+    assert not isinstance(screen, PlaceholderScreen)
+    assert screen._table.rowCount() == 0
+    assert "Connect a Corpus input" in screen._status_label.text()
+
+
+def test_main_window_can_open_word_cloud_widget(app):
+    window = MainWindow()
+
+    window._workspace.canvas.add_workflow_node("text-word-cloud")
+    window._show_widget("text-word-cloud")
+
+    assert isinstance(window._workspace.current_widget(), WordCloudScreen)
+
+
+def test_text_mining_extract_keywords_widget_uses_real_screen(app):
+    widgets = {widget.id: widget for widget in build_widgets()}
+
+    screen = widgets["text-extract-keywords"].screen_factory()
+
+    assert isinstance(screen, ExtractKeywordsScreen)
+    assert not isinstance(screen, PlaceholderScreen)
+    assert screen._table.rowCount() == 0
+    assert "Connect a Corpus input" in screen._status_label.text()
+
+
+def test_main_window_can_open_extract_keywords_widget(app):
+    window = MainWindow()
+
+    window._workspace.canvas.add_workflow_node("text-extract-keywords")
+    window._show_widget("text-extract-keywords")
+
+    assert isinstance(window._workspace.current_widget(), ExtractKeywordsScreen)
+
+
+def test_text_mining_sentiment_analysis_widget_uses_real_screen(app):
+    widgets = {widget.id: widget for widget in build_widgets()}
+
+    screen = widgets["text-sentiment-analysis"].screen_factory()
+
+    assert isinstance(screen, SentimentAnalysisScreen)
+    assert not isinstance(screen, PlaceholderScreen)
+    assert screen._table.rowCount() == 0
+    assert "Connect a Corpus input" in screen._status_label.text()
+
+
+def test_main_window_can_open_sentiment_analysis_widget(app):
+    window = MainWindow()
+
+    window._workspace.canvas.add_workflow_node("text-sentiment-analysis")
+    window._show_widget("text-sentiment-analysis")
+
+    assert isinstance(window._workspace.current_widget(), SentimentAnalysisScreen)
+
+
+def test_text_mining_topic_modelling_widget_uses_real_screen(app):
+    widgets = {widget.id: widget for widget in build_widgets()}
+
+    screen = widgets["text-topic-modelling"].screen_factory()
+
+    assert isinstance(screen, TopicModellingScreen)
+    assert not isinstance(screen, PlaceholderScreen)
+    assert screen._topics_table.rowCount() == 0
+    assert "Connect a Corpus input" in screen._status_label.text()
+
+
+def test_main_window_can_open_topic_modelling_widget(app):
+    window = MainWindow()
+
+    window._workspace.canvas.add_workflow_node("text-topic-modelling")
+    window._show_widget("text-topic-modelling")
+
+    assert isinstance(window._workspace.current_widget(), TopicModellingScreen)
+
+
+def test_text_mining_document_map_widget_uses_real_screen(app):
+    widgets = {widget.id: widget for widget in build_widgets()}
+
+    screen = widgets["text-document-map"].screen_factory()
+
+    assert isinstance(screen, DocumentMapScreen)
+    assert not isinstance(screen, PlaceholderScreen)
+    assert screen._table.rowCount() == 0
+    assert "Connect a Corpus input" in screen._status_label.text()
+
+
+def test_main_window_can_open_document_map_widget(app):
+    window = MainWindow()
+
+    window._workspace.canvas.add_workflow_node("text-document-map")
+    window._show_widget("text-document-map")
+
+    assert isinstance(window._workspace.current_widget(), DocumentMapScreen)
 
 
 def test_text_mining_wikipedia_widget_uses_real_screen(app):
@@ -509,6 +697,153 @@ def test_corpus_payload_parser_rejects_non_corpus_items():
     assert corpus_documents_from_payload(documents) == documents
     assert corpus_documents_from_payload("not a corpus") is None
     assert corpus_documents_from_payload((object(),)) is None
+
+
+def test_corpus_viewer_accepts_input_and_passes_same_corpus(app):
+    documents = (
+        CorpusDocument("First", "apple banana", "Manual"),
+        CorpusDocument("Second", "carrot", "Manual"),
+    )
+    screen = CorpusViewerScreen()
+
+    screen.set_input_payload(WorkflowPayload("Corpus", documents))
+
+    assert screen._table.rowCount() == 2
+    assert screen._table.item(0, 0).text() == "First"
+    assert screen._table.item(0, 3).text() == "2"
+    assert screen.current_output_payload().port_label == "Corpus"
+    assert screen.current_output_payload().value == documents
+
+
+def test_text_statistics_summary_and_screen_use_corpus_words(app):
+    documents = (
+        CorpusDocument("Long", "apple banana apple", "Manual"),
+        CorpusDocument("Short", "banana", "Manual"),
+    )
+    summary = summarize_text_statistics(documents)
+    screen = TextStatisticsScreen()
+
+    screen.set_input_payload(WorkflowPayload("Corpus", documents))
+
+    assert summary.document_count == 2
+    assert summary.total_word_count == 4
+    assert summary.unique_word_count == 2
+    assert summary.longest_document_title == "Long"
+    assert summary.shortest_document_title == "Short"
+    assert screen._table.item(0, 0).text() == "apple"
+    assert screen._table.item(0, 1).text() == "2"
+
+
+def test_word_list_builds_frequency_and_document_counts(app):
+    documents = (
+        CorpusDocument("First", "apple apple banana"),
+        CorpusDocument("Second", "banana carrot apple"),
+    )
+    items = build_word_list(documents)
+    screen = WordListScreen()
+
+    screen.set_input_payload(WorkflowPayload("Corpus", documents))
+
+    assert items[0].word == "apple"
+    assert items[0].frequency == 3
+    assert items[0].document_count == 2
+    assert screen._table.rowCount() == 3
+    assert screen._table.item(0, 0).text() == "apple"
+    assert screen.current_output_payload().port_label == "Words"
+
+
+def test_word_cloud_builds_frequency_view_from_corpus(app):
+    documents = (
+        CorpusDocument("First", "apple apple banana"),
+        CorpusDocument("Second", "banana carrot apple"),
+    )
+    screen = WordCloudScreen()
+
+    screen.set_input_payload(WorkflowPayload("Corpus", documents))
+
+    assert cloud_word_frequencies(documents) == (("apple", 3), ("banana", 2), ("carrot", 1))
+    assert screen._table.rowCount() == 3
+    assert "apple" in screen._cloud_label.text()
+
+
+def test_extract_keywords_uses_corpus_terms_and_outputs_keywords(app):
+    documents = (
+        CorpusDocument("First", "apple apple banana"),
+        CorpusDocument("Second", "carrot banana carrot"),
+    )
+    keywords = extract_keywords(documents, top_n=2)
+    screen = ExtractKeywordsScreen()
+
+    screen.set_input_payload(WorkflowPayload("Corpus", documents))
+
+    assert any(item.keyword == "apple" for item in keywords)
+    assert screen._table.rowCount() == 4
+    assert screen.current_output_payload().port_label == "Keywords"
+    assert screen._table.item(0, 1).text() in {"apple", "carrot"}
+
+
+def test_sentiment_analysis_scores_positive_negative_and_neutral_documents(app):
+    documents = (
+        CorpusDocument("Positive", "good useful başarılı"),
+        CorpusDocument("Negative", "bad error kötü"),
+        CorpusDocument("Neutral", "plain corpus text"),
+    )
+    results = analyze_sentiment(documents)
+    screen = SentimentAnalysisScreen()
+
+    screen.set_input_payload(WorkflowPayload("Corpus", documents))
+
+    assert [result.label for result in results] == ["Positive", "Negative", "Neutral"]
+    assert screen._table.rowCount() == 3
+    assert screen._table.item(0, 4).text() == "Positive"
+    assert screen._table.item(1, 4).text() == "Negative"
+    assert screen._neutral_count_label.text().endswith("1")
+
+
+def test_topic_modelling_builds_topics_and_document_assignments(app):
+    documents = (
+        CorpusDocument("Fruit A", "apple banana fruit apple"),
+        CorpusDocument("Fruit B", "banana orange fruit"),
+        CorpusDocument("Tech", "model data mining model"),
+    )
+    result = build_topic_model(documents, topic_count=2, top_words=3)
+    screen = TopicModellingScreen()
+    screen._topic_count_spinbox.setValue(2)
+    screen._top_words_spinbox.setValue(3)
+
+    screen.set_input_payload(WorkflowPayload("Corpus", documents))
+
+    assert len(result.topics) == 2
+    assert len(result.document_topics) == 3
+    assert screen._topics_table.rowCount() == 2
+    assert screen._documents_table.rowCount() == 3
+    assert screen.current_output_payload().port_label == "Topics"
+
+
+def test_topic_modelling_handles_too_small_corpus_without_crashing(app):
+    screen = TopicModellingScreen()
+
+    screen.set_input_payload(WorkflowPayload("Corpus", (CorpusDocument("Only", "one document"),)))
+
+    assert screen._topics_table.rowCount() == 0
+    assert "At least 2" in screen._status_label.text()
+
+
+def test_document_map_builds_two_document_fallback_and_table(app):
+    documents = (
+        CorpusDocument("First", "apple banana"),
+        CorpusDocument("Second", "carrot date"),
+    )
+    result = build_document_map(documents)
+    screen = DocumentMapScreen()
+
+    screen.set_input_payload(WorkflowPayload("Corpus", documents))
+
+    assert len(result.coordinates) == 2
+    assert result.coordinates[0].x == -1.0
+    assert result.coordinates[1].x == 1.0
+    assert screen._table.rowCount() == 2
+    assert screen._table.item(0, 0).text() == "First"
 
 
 def test_create_corpus_document_uses_title_source_preview_and_word_count():
@@ -905,6 +1240,75 @@ def test_main_window_can_route_preprocess_text_output_to_bag_of_words_widget(app
     assert bow_runtime.screen._table.item(0, 1).text() == "1"
     assert bow_runtime.screen._table.item(0, 2).text() == "1"
     assert bow_runtime.screen._table.item(0, 3).text() == "2"
+
+
+def test_main_window_can_route_preprocess_text_output_to_person_b_widgets(app):
+    window = MainWindow()
+    create_record = window._workspace.canvas.add_workflow_node("text-create-corpus")
+    preprocess_record = window._workspace.canvas.add_workflow_node("text-preprocess")
+    viewer_record = window._workspace.canvas.add_workflow_node("text-corpus-viewer")
+    statistics_record = window._workspace.canvas.add_workflow_node("text-statistics")
+    word_list_record = window._workspace.canvas.add_workflow_node("text-word-list")
+    word_cloud_record = window._workspace.canvas.add_workflow_node("text-word-cloud")
+    scene = window._workspace.canvas.workflow_scene
+
+    assert scene.create_connection(create_record.node_id, preprocess_record.node_id)
+    assert scene.create_connection(preprocess_record.node_id, viewer_record.node_id)
+    assert scene.create_connection(preprocess_record.node_id, statistics_record.node_id)
+    assert scene.create_connection(preprocess_record.node_id, word_list_record.node_id)
+    assert scene.create_connection(preprocess_record.node_id, word_cloud_record.node_id)
+
+    create_runtime = window._node_runtimes[create_record.node_id]
+    viewer_runtime = window._node_runtimes[viewer_record.node_id]
+    statistics_runtime = window._node_runtimes[statistics_record.node_id]
+    word_list_runtime = window._node_runtimes[word_list_record.node_id]
+    word_cloud_runtime = window._node_runtimes[word_cloud_record.node_id]
+    create_runtime.screen.add_document("Workflow Text", "Apple, apple! Banana.", "Manual")
+    app.processEvents()
+
+    assert isinstance(viewer_runtime.screen, CorpusViewerScreen)
+    assert isinstance(statistics_runtime.screen, TextStatisticsScreen)
+    assert isinstance(word_list_runtime.screen, WordListScreen)
+    assert isinstance(word_cloud_runtime.screen, WordCloudScreen)
+    assert viewer_runtime.screen._table.item(0, 2).text() == "apple apple banana"
+    assert statistics_runtime.screen._table.item(0, 0).text() == "apple"
+    assert word_list_runtime.screen._table.item(0, 0).text() == "apple"
+    assert word_cloud_runtime.screen._table.item(0, 0).text() == "apple"
+
+
+def test_main_window_can_route_preprocess_text_output_to_advanced_text_widgets(app):
+    window = MainWindow()
+    create_record = window._workspace.canvas.add_workflow_node("text-create-corpus")
+    preprocess_record = window._workspace.canvas.add_workflow_node("text-preprocess")
+    keywords_record = window._workspace.canvas.add_workflow_node("text-extract-keywords")
+    sentiment_record = window._workspace.canvas.add_workflow_node("text-sentiment-analysis")
+    topics_record = window._workspace.canvas.add_workflow_node("text-topic-modelling")
+    map_record = window._workspace.canvas.add_workflow_node("text-document-map")
+    scene = window._workspace.canvas.workflow_scene
+
+    assert scene.create_connection(create_record.node_id, preprocess_record.node_id)
+    assert scene.create_connection(preprocess_record.node_id, keywords_record.node_id)
+    assert scene.create_connection(preprocess_record.node_id, sentiment_record.node_id)
+    assert scene.create_connection(preprocess_record.node_id, topics_record.node_id)
+    assert scene.create_connection(preprocess_record.node_id, map_record.node_id)
+
+    create_runtime = window._node_runtimes[create_record.node_id]
+    keywords_runtime = window._node_runtimes[keywords_record.node_id]
+    sentiment_runtime = window._node_runtimes[sentiment_record.node_id]
+    topics_runtime = window._node_runtimes[topics_record.node_id]
+    map_runtime = window._node_runtimes[map_record.node_id]
+    create_runtime.screen.add_document("Positive Fruit", "Good apple apple banana", "Manual")
+    create_runtime.screen.add_document("Negative Tech", "Bad error data model", "Manual")
+    app.processEvents()
+
+    assert isinstance(keywords_runtime.screen, ExtractKeywordsScreen)
+    assert isinstance(sentiment_runtime.screen, SentimentAnalysisScreen)
+    assert isinstance(topics_runtime.screen, TopicModellingScreen)
+    assert isinstance(map_runtime.screen, DocumentMapScreen)
+    assert keywords_runtime.screen._table.rowCount() > 0
+    assert sentiment_runtime.screen._table.rowCount() == 2
+    assert topics_runtime.screen._documents_table.rowCount() == 2
+    assert map_runtime.screen._table.rowCount() == 2
 
 
 def test_main_window_can_route_import_documents_output_directly_to_bag_of_words(app, tmp_path):

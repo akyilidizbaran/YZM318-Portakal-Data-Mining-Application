@@ -5,12 +5,15 @@ from portakal_app.ui import i18n
 from portakal_app.ui.screens.color_screen import ColorScreen
 from portakal_app.ui.screens.column_statistics_screen import ColumnStatisticsScreen
 from portakal_app.ui.screens.corpus_screen import CorpusScreen
+from portakal_app.ui.screens.corpus_viewer_screen import CorpusViewerScreen
 from portakal_app.ui.screens.create_corpus_screen import CreateCorpusScreen
 from portakal_app.ui.screens.csv_import_screen import CSVImportScreen
 from portakal_app.ui.screens.data_info_screen import DataInfoScreen
 from portakal_app.ui.screens.data_table_screen import DataTableScreen
 from portakal_app.ui.screens.datasets_screen import DatasetsScreen
+from portakal_app.ui.screens.document_map_screen import DocumentMapScreen
 from portakal_app.ui.screens.edit_domain_screen import EditDomainScreen
+from portakal_app.ui.screens.extract_keywords_screen import ExtractKeywordsScreen
 from portakal_app.ui.screens.file_screen import FileScreen
 from portakal_app.ui.screens.guardian_screen import GuardianScreen
 from portakal_app.ui.screens.import_documents_screen import ImportDocumentsScreen
@@ -42,6 +45,7 @@ from portakal_app.ui.screens.purge_domain_screen import PurgeDomainScreen
 from portakal_app.ui.screens.randomize_screen import RandomizeScreen
 from portakal_app.ui.screens.save_distance_matrix_screen import SaveDistanceMatrixScreen
 from portakal_app.ui.screens.select_by_index_screen import SelectByIndexScreen
+from portakal_app.ui.screens.sentiment_analysis_screen import SentimentAnalysisScreen
 from portakal_app.ui.screens.split_screen import SplitScreen
 from portakal_app.ui.screens.transpose_screen import TransposeScreen
 from portakal_app.ui.screens.unique_screen import UniqueScreen
@@ -105,6 +109,10 @@ from portakal_app.ui.screens.load_model_screen import LoadModelScreen
 from portakal_app.ui.screens.confusion_matrix_screen import ConfusionMatrixScreen
 from portakal_app.ui.screens.test_and_score_screen import TestAndScoreScreen
 from portakal_app.ui.screens.twitter_screen import TwitterScreen
+from portakal_app.ui.screens.text_statistics_screen import TextStatisticsScreen
+from portakal_app.ui.screens.topic_modelling_screen import TopicModellingScreen
+from portakal_app.ui.screens.word_cloud_screen import WordCloudScreen
+from portakal_app.ui.screens.word_list_screen import WordListScreen
 from portakal_app.widgets.unsupervised.ow_hierarchical_clustering import OWHierarchicalClustering
 from portakal_app.widgets.unsupervised.ow_kmeans import OWKMeans
 from portakal_app.widgets.unsupervised.ow_pca import OWPCA
@@ -1209,6 +1217,17 @@ def build_widgets() -> list[WidgetDefinition]:
             _outputs("Corpus"),
         ),
         WidgetDefinition(
+            "text-corpus-viewer",
+            "text-mining",
+            i18n.t("Corpus Viewer"),
+            True,
+            CorpusViewerScreen,
+            i18n.t("Inspect corpus documents."),
+            "text_corpus",
+            _inputs("Corpus"),
+            _outputs("Corpus"),
+        ),
+        WidgetDefinition(
             "text-import-documents",
             "text-mining",
             i18n.t("Import Documents"),
@@ -1306,5 +1325,82 @@ def build_widgets() -> list[WidgetDefinition]:
             "text_bag_of_words",
             _inputs("Corpus"),
             _outputs("Data"),
+        ),
+        WidgetDefinition(
+            "text-statistics",
+            "text-mining",
+            i18n.t("Statistics"),
+            True,
+            TextStatisticsScreen,
+            i18n.t("Summarize corpus statistics."),
+            "stats",
+            _inputs("Corpus"),
+            (),
+        ),
+        WidgetDefinition(
+            "text-word-list",
+            "text-mining",
+            i18n.t("Word List"),
+            True,
+            WordListScreen,
+            i18n.t("List words and frequencies in a corpus."),
+            "text_bag_of_words",
+            _inputs("Corpus"),
+            _outputs("Words"),
+        ),
+        WidgetDefinition(
+            "text-word-cloud",
+            "text-mining",
+            i18n.t("Word Cloud"),
+            True,
+            WordCloudScreen,
+            i18n.t("Visualize frequent corpus words."),
+            "text_mining",
+            _inputs("Corpus"),
+            (),
+        ),
+        WidgetDefinition(
+            "text-extract-keywords",
+            "text-mining",
+            i18n.t("Extract Keywords"),
+            True,
+            ExtractKeywordsScreen,
+            i18n.t("Extract keywords from corpus documents."),
+            "text_bag_of_words",
+            _inputs("Corpus"),
+            _outputs("Keywords"),
+        ),
+        WidgetDefinition(
+            "text-sentiment-analysis",
+            "text-mining",
+            i18n.t("Sentiment Analysis"),
+            True,
+            SentimentAnalysisScreen,
+            i18n.t("Score document sentiment with a lightweight lexicon."),
+            "stats",
+            _inputs("Corpus"),
+            (),
+        ),
+        WidgetDefinition(
+            "text-topic-modelling",
+            "text-mining",
+            i18n.t("Topic Modelling"),
+            True,
+            TopicModellingScreen,
+            i18n.t("Discover topics in a corpus."),
+            "text_mining",
+            _inputs("Corpus"),
+            _outputs("Topics"),
+        ),
+        WidgetDefinition(
+            "text-document-map",
+            "text-mining",
+            i18n.t("Document Map"),
+            True,
+            DocumentMapScreen,
+            i18n.t("Project documents into a 2D map."),
+            "mds",
+            _inputs("Corpus"),
+            (),
         ),
     ]
