@@ -1215,6 +1215,8 @@ def build_widgets() -> list[WidgetDefinition]:
             "text_corpus",
             _inputs("Corpus"),
             _outputs("Corpus"),
+            input_channels=("Corpus",),
+            multi_input_channels=("Corpus",),
         ),
         WidgetDefinition(
             "text-corpus-viewer",

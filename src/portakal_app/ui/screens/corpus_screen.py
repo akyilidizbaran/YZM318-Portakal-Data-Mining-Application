@@ -89,6 +89,7 @@ class CorpusScreen(QWidget, WorkflowNodeScreenSupport):
         self._init_workflow_node_support()
         self._documents = tuple(SAMPLE_CORPUS if documents is None else documents)
         self._using_input_corpus = documents is not None
+        self._input_corpus_count = 1 if documents is not None else 0
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(8, 8, 8, 8)
@@ -159,14 +160,17 @@ class CorpusScreen(QWidget, WorkflowNodeScreenSupport):
         if payload is None:
             self._documents = tuple(SAMPLE_CORPUS)
             self._using_input_corpus = False
+            self._input_corpus_count = 0
             self._render()
             self._notify_output_changed()
             return
 
         documents = corpus_documents_from_payload(payload.value)
+        self._input_corpus_count += 1
         if documents is None:
-            self._documents = ()
-            self._using_input_corpus = True
+            documents = ()
+        if self._using_input_corpus:
+            self._documents = (*self._documents, *documents)
         else:
             self._documents = documents
             self._using_input_corpus = True
@@ -183,7 +187,9 @@ class CorpusScreen(QWidget, WorkflowNodeScreenSupport):
         self._average_word_count_label.setText(
             f"Avg Words / Document\n{summary.average_words_per_document:.1f}"
         )
-        if self._documents and self._using_input_corpus:
+        if self._documents and self._using_input_corpus and self._input_corpus_count > 1:
+            status = f"Merged {self._input_corpus_count} input corpora and displayed them in connection order."
+        elif self._documents and self._using_input_corpus:
             status = "Input corpus is connected and displayed."
         elif self._documents:
             status = "Built-in sample corpus is ready."

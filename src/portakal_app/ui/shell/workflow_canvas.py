@@ -1188,7 +1188,10 @@ class WorkflowScene(QGraphicsScene):
         if edge_key in self._edge_keys:
             return False, "These ports are already connected."
         target_node = self._nodes.get(target_ref.node_id)
-        has_input_channels = target_node is not None and len(target_node.widget_definition.input_channels) > 1
+        has_input_channels = target_node is not None and (
+            len(target_node.widget_definition.input_channels) > 1
+            or bool(target_node.widget_definition.multi_input_channels)
+        )
         if (target_ref.node_id, target_ref.port_id) in self._occupied_inputs and not has_input_channels:
             return False, "That input port is already connected."
         if has_input_channels:

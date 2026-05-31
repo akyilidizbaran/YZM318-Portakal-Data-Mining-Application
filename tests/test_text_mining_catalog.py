@@ -633,6 +633,13 @@ def test_text_mining_widgets_register_expected_ports():
         assert tuple(port.label for port in widget.output_ports) == output_labels
 
 
+def test_corpus_widget_accepts_multiple_corpus_inputs():
+    widget = {widget.id: widget for widget in build_widgets()}["text-corpus"]
+
+    assert widget.input_channels == ("Corpus",)
+    assert widget.multi_input_channels == ("Corpus",)
+
+
 def test_corpus_summary_counts_documents_and_words():
     documents = (
         CorpusDocument("First", "one two three"),
@@ -679,6 +686,28 @@ def test_corpus_screen_accepts_input_payload_and_resets_to_sample(app):
     assert screen._table.rowCount() == len(SAMPLE_CORPUS)
     assert screen._table.item(0, 0).text() == SAMPLE_CORPUS[0].title
     assert "Built-in sample corpus" in screen._status_label.text()
+
+
+def test_corpus_screen_merges_multiple_input_payloads_in_order(app):
+    manual_documents = (
+        CorpusDocument("Manual One", "alpha beta", "Create Corpus"),
+        CorpusDocument("Manual Two", "gamma delta", "Create Corpus"),
+    )
+    wikipedia_documents = (
+        CorpusDocument("Wikipedia One", "encyclopedia text", "Wikipedia"),
+    )
+    screen = CorpusScreen()
+
+    screen.set_input_payload(None)
+    screen.set_input_payload(WorkflowPayload("Corpus", manual_documents))
+    screen.set_input_payload(WorkflowPayload("Corpus", wikipedia_documents))
+
+    assert screen._table.rowCount() == 3
+    assert screen._table.item(0, 0).text() == "Manual One"
+    assert screen._table.item(1, 0).text() == "Manual Two"
+    assert screen._table.item(2, 0).text() == "Wikipedia One"
+    assert screen.current_output_payload().value == (*manual_documents, *wikipedia_documents)
+    assert "Merged 2 input corpora" in screen._status_label.text()
 
 
 def test_corpus_screen_any_connected_input_overrides_sample_even_when_empty(app):
@@ -947,6 +976,37 @@ def test_main_window_can_route_create_corpus_output_to_corpus_widget(app):
     assert target_runtime.screen._table.item(0, 0).text() == "Workflow Doc"
     assert target_runtime.output_payload is not None
     assert target_runtime.output_payload.port_label == "Corpus"
+
+
+def test_main_window_can_merge_create_corpus_and_wikipedia_into_corpus_widget(app):
+    window = MainWindow()
+    create_record = window._workspace.canvas.add_workflow_node("text-create-corpus")
+    wikipedia_record = window._workspace.canvas.add_workflow_node("text-wikipedia")
+    target_record = window._workspace.canvas.add_workflow_node("text-corpus")
+    scene = window._workspace.canvas.workflow_scene
+
+    assert scene.create_connection(create_record.node_id, target_record.node_id)
+    assert scene.create_connection(wikipedia_record.node_id, target_record.node_id)
+
+    create_runtime = window._node_runtimes[create_record.node_id]
+    wikipedia_runtime = window._node_runtimes[wikipedia_record.node_id]
+    target_runtime = window._node_runtimes[target_record.node_id]
+    create_document = create_runtime.screen.add_document(
+        "Manual Workflow Doc",
+        "alpha beta gamma",
+        "Create Corpus",
+    )
+    app.processEvents()
+
+    wikipedia_documents = wikipedia_runtime.screen.current_output_payload().value
+    expected_documents = (create_document, *wikipedia_documents)
+
+    assert isinstance(target_runtime.screen, CorpusScreen)
+    assert target_runtime.screen.current_output_payload().value == expected_documents
+    assert target_runtime.screen._table.rowCount() == len(expected_documents)
+    assert target_runtime.screen._table.item(0, 0).text() == "Manual Workflow Doc"
+    assert target_runtime.screen._table.item(1, 0).text().startswith("Wikipedia Sample:")
+    assert "Merged 2 input corpora" in target_runtime.screen._status_label.text()
 
 
 def test_import_documents_output_can_update_connected_corpus_widget(app, tmp_path):
