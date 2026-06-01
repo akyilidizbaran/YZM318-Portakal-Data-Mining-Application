@@ -34,6 +34,10 @@ LLM_PROVIDER_ENV_VARS = {
 WORKFLOW_PORT_COMPATIBILITY_OVERRIDES = {
     ("Scores", "Data"): frozenset({"data-table", "save-data"}),
     ("Features", "Data"): frozenset({"data-table", "save-data"}),
+    ("Corpus", "Data"): frozenset({"data-table"}),
+    ("Words", "Data"): frozenset({"data-table"}),
+    ("Selected Words", "Data"): frozenset({"data-table"}),
+    ("Word Counts", "Data"): frozenset({"data-table", "save-data"}),
     ("Data", "Extra Data"): frozenset({"merge-data"}),
     ("Data", "Template Data"): frozenset({"apply-domain"}),
     ("Data", "Data Subset"): frozenset({"hierarchical-clustering", "mds"}),

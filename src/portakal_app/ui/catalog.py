@@ -1266,7 +1266,7 @@ def build_widgets() -> list[WidgetDefinition]:
             i18n.t("Convert a corpus into a document-term matrix."),
             "text_bag_of_words",
             _inputs("Corpus"),
-            _outputs("Data"),
+            _outputs("Corpus"),
         ),
         WidgetDefinition(
             "text-statistics",
@@ -1277,7 +1277,7 @@ def build_widgets() -> list[WidgetDefinition]:
             i18n.t("Summarize corpus statistics."),
             "text_statistics",
             _inputs("Corpus"),
-            (),
+            _outputs("Corpus"),
         ),
         WidgetDefinition(
             "text-word-list",
@@ -1287,8 +1287,9 @@ def build_widgets() -> list[WidgetDefinition]:
             WordListScreen,
             i18n.t("List words and frequencies in a corpus."),
             "text_word_list",
-            _inputs("Corpus"),
-            _outputs("Words"),
+            _inputs("Corpus", "Words"),
+            _outputs("Words", "Selected Words", "Data"),
+            output_channels=("Words", "Selected Words", "Data"),
         ),
         WidgetDefinition(
             "text-word-cloud",
@@ -1299,7 +1300,8 @@ def build_widgets() -> list[WidgetDefinition]:
             i18n.t("Visualize frequent corpus words."),
             "text_word_cloud",
             _inputs("Corpus"),
-            (),
+            _outputs("Corpus", "Selected Word", "Word Counts"),
+            output_channels=("Corpus", "Selected Word", "Word Counts"),
         ),
         WidgetDefinition(
             "text-extract-keywords",
@@ -1310,7 +1312,7 @@ def build_widgets() -> list[WidgetDefinition]:
             i18n.t("Extract keywords from corpus documents."),
             "text_extract_keywords",
             _inputs("Corpus"),
-            _outputs("Keywords"),
+            _outputs("Words"),
         ),
         WidgetDefinition(
             "text-sentiment-analysis",
@@ -1321,7 +1323,7 @@ def build_widgets() -> list[WidgetDefinition]:
             i18n.t("Score document sentiment with a lightweight lexicon."),
             "text_sentiment_analysis",
             _inputs("Corpus"),
-            (),
+            _outputs("Corpus"),
         ),
         WidgetDefinition(
             "text-topic-modelling",
@@ -1332,7 +1334,8 @@ def build_widgets() -> list[WidgetDefinition]:
             i18n.t("Discover topics in a corpus."),
             "text_topic_modelling",
             _inputs("Corpus"),
-            _outputs("Topics"),
+            _outputs("Corpus", "Topic"),
+            output_channels=("Corpus", "Topic"),
         ),
         WidgetDefinition(
             "text-document-map",

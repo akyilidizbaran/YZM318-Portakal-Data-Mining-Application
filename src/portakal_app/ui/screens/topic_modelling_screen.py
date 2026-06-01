@@ -17,7 +17,11 @@ from PySide6.QtWidgets import (
 )
 
 from portakal_app.models import WorkflowPayload
-from portakal_app.ui.screens.corpus_screen import CorpusDocument, corpus_documents_from_payload
+from portakal_app.ui.screens.corpus_screen import (
+    CorpusDocument,
+    corpus_documents_from_payload,
+    with_corpus_document_attributes,
+)
 from portakal_app.ui.screens.node_screen import WorkflowNodeScreenSupport
 from portakal_app.ui.shared.cards import SectionHeader
 from portakal_app.ui.shared.readable_inputs import apply_readable_spin_box_style
@@ -114,6 +118,7 @@ class TopicModellingScreen(QWidget, WorkflowNodeScreenSupport):
         self._documents = tuple(() if documents is None else documents)
         self._using_input_corpus = documents is not None
         self._result = TopicModelResult()
+        self._output_documents: tuple[CorpusDocument, ...] = self._documents
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(8, 8, 8, 8)
@@ -236,8 +241,14 @@ class TopicModellingScreen(QWidget, WorkflowNodeScreenSupport):
         self.apply_options()
 
     def current_output_payload(self) -> WorkflowPayload:
+        return WorkflowPayload("Corpus", self._output_documents)
+
+    def current_output_payloads(self) -> dict[str, WorkflowPayload | None]:
         rows = [[row.topic, row.top_words] for row in self._result.topics]
-        return WorkflowPayload("Topics", rows)
+        return {
+            "Corpus": WorkflowPayload("Corpus", self._output_documents),
+            "Topic": WorkflowPayload("Topic", rows),
+        }
 
     def apply_options(self) -> TopicModelResult:
         self._result = build_topic_model(
@@ -245,9 +256,25 @@ class TopicModellingScreen(QWidget, WorkflowNodeScreenSupport):
             topic_count=self._topic_count_spinbox.value(),
             top_words=self._top_words_spinbox.value(),
         )
+        self._output_documents = self._build_output_documents()
         self._render()
         self._notify_output_changed()
         return self._result
+
+    def _build_output_documents(self) -> tuple[CorpusDocument, ...]:
+        by_title = {row.document: row for row in self._result.document_topics}
+        return tuple(
+            with_corpus_document_attributes(
+                document,
+                {
+                    "topic": by_title[document.title].topic,
+                    "topic_score": by_title[document.title].score,
+                },
+            )
+            if document.title in by_title
+            else document
+            for document in self._documents
+        )
 
     def _render(self) -> None:
         self._document_count_label.setText(f"Documents\n{len(self._documents)}")

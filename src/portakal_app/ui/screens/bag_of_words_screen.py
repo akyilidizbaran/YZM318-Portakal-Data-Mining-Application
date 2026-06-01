@@ -22,7 +22,11 @@ from PySide6.QtWidgets import (
 )
 
 from portakal_app.models import WorkflowPayload
-from portakal_app.ui.screens.corpus_screen import CorpusDocument, corpus_documents_from_payload
+from portakal_app.ui.screens.corpus_screen import (
+    CorpusDocument,
+    corpus_documents_from_payload,
+    with_corpus_document_attributes,
+)
 from portakal_app.ui.screens.node_screen import WorkflowNodeScreenSupport
 from portakal_app.ui.shared.cards import SectionHeader
 
@@ -252,6 +256,7 @@ class BagOfWordsScreen(QWidget, WorkflowNodeScreenSupport):
         self._using_input_corpus = documents is not None
         self._vocabulary: tuple[str, ...] = ()
         self._matrix: tuple[tuple[float, ...], ...] = ()
+        self._output_documents: tuple[CorpusDocument, ...] = self._documents
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(8, 8, 8, 8)
@@ -389,9 +394,24 @@ class BagOfWordsScreen(QWidget, WorkflowNodeScreenSupport):
             global_weighting=global_weighting,
             normalization=normalization,
         )
+        self._output_documents = self._build_output_documents()
         self._render()
         self._notify_output_changed()
         return self._matrix
+
+    def current_output_payload(self) -> WorkflowPayload:
+        return WorkflowPayload("Corpus", self._output_documents)
+
+    def _build_output_documents(self) -> tuple[CorpusDocument, ...]:
+        enriched: list[CorpusDocument] = []
+        for document, row in zip(self._documents, self._matrix, strict=False):
+            attributes = {
+                f"bow_{term}": value
+                for term, value in zip(self._vocabulary, row, strict=False)
+            }
+            attributes["bow_total"] = sum(row)
+            enriched.append(with_corpus_document_attributes(document, attributes))
+        return tuple(enriched)
 
     def set_documents(self, documents: Sequence[CorpusDocument]) -> None:
         self._documents = tuple(documents)

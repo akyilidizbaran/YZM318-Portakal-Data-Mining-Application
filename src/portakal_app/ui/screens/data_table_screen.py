@@ -30,6 +30,8 @@ from portakal_app.data.models import DatasetHandle, PreviewPage
 from portakal_app.data.services.generated_dataset_service import GeneratedDatasetService
 from portakal_app.data.services.preview_service import PreviewService
 from portakal_app.ui import i18n
+from portakal_app.ui.screens.bag_of_words_screen import tokenize_for_bow
+from portakal_app.ui.screens.corpus_screen import corpus_document_attributes, corpus_documents_from_payload
 from portakal_app.ui.screens.node_screen import WorkflowNodeScreenSupport
 
 
@@ -467,8 +469,19 @@ class DataTableScreen(QWidget, WorkflowNodeScreenSupport):
         self._preview_service = service
 
     def set_input_payload(self, payload) -> None:
-        dataset = payload.dataset if payload is not None else None
+        documents = corpus_documents_from_payload(payload.value) if payload is not None else None
+        if documents is not None:
+            dataset = self._build_corpus_dataset(documents or ())
+        elif payload is not None and (
+            payload.port_label in {"Words", "Selected Words"} or self._looks_like_words_payload(payload.value)
+        ):
+            dataset = self._build_words_dataset(payload.value, payload.port_label)
+        else:
+            dataset = payload.dataset if payload is not None else None
         self.set_dataset(dataset)
+
+    def _looks_like_words_payload(self, value: object) -> bool:
+        return isinstance(value, (list, tuple, set, frozenset)) and all(isinstance(item, str) for item in value)
 
     def current_output_dataset(self) -> DatasetHandle | None:
         if self._dataset_handle is None:
@@ -554,6 +567,65 @@ class DataTableScreen(QWidget, WorkflowNodeScreenSupport):
             return
 
         self._load_from_handle()
+
+    def _build_corpus_dataset(self, documents) -> DatasetHandle:
+        attribute_names: list[str] = []
+        for document in documents:
+            for name in corpus_document_attributes(document):
+                if name not in attribute_names:
+                    attribute_names.append(name)
+
+        columns = ["Document", "Source", "Text", *attribute_names]
+        values: dict[str, list[object]] = {column: [] for column in columns}
+        for document in documents:
+            attributes = corpus_document_attributes(document)
+            values["Document"].append(document.title)
+            values["Source"].append(document.source)
+            values["Text"].append(document.text)
+            for name in attribute_names:
+                values[name].append(attributes.get(name))
+
+        dataframe = pl.DataFrame(values)
+        role_overrides = {
+            "Document": "meta",
+            "Source": "meta",
+            "Text": "meta",
+        }
+        for name in attribute_names:
+            role_overrides[name] = "feature" if dataframe.get_column(name).dtype.is_numeric() else "meta"
+
+        return self._generated_dataset_service.build_dataset(
+            dataframe,
+            dataset_id="corpus-documents-output",
+            display_name="Corpus Documents",
+            file_name="corpus-documents-output.csv",
+            role_overrides=role_overrides,
+            annotations={"generated_by": "corpus-to-data-table"},
+        )
+
+    def _build_words_dataset(self, value: object, port_label: str) -> DatasetHandle:
+        words: list[str] = []
+        if isinstance(value, str):
+            words.extend(tokenize_for_bow(value))
+        elif isinstance(value, (list, tuple, set, frozenset)):
+            for item in value:
+                if isinstance(item, str):
+                    tokens = tokenize_for_bow(item)
+                    words.extend(tokens if tokens else [item.strip()])
+                elif hasattr(item, "keyword"):
+                    words.extend(tokenize_for_bow(str(getattr(item, "keyword"))))
+                elif hasattr(item, "word"):
+                    words.extend(tokenize_for_bow(str(getattr(item, "word"))))
+        unique_words = [word for word in dict.fromkeys(word for word in words if word)]
+        dataframe = pl.DataFrame({"Word": unique_words}, schema={"Word": pl.Utf8})
+        return self._generated_dataset_service.build_dataset(
+            dataframe,
+            dataset_id="words-output",
+            display_name=port_label,
+            file_name="words-output.csv",
+            role_overrides={"Word": "meta"},
+            annotations={"generated_by": "words-to-data-table", "source_port": port_label},
+        )
 
     def _try_load_from_path(self, path: str) -> DatasetHandle | None:
         """Best-effort fallback to load a path into a DatasetHandle."""

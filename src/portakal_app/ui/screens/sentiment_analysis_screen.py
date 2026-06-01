@@ -16,7 +16,11 @@ from PySide6.QtWidgets import (
 
 from portakal_app.models import WorkflowPayload
 from portakal_app.ui.screens.bag_of_words_screen import tokenize_for_bow
-from portakal_app.ui.screens.corpus_screen import CorpusDocument, corpus_documents_from_payload
+from portakal_app.ui.screens.corpus_screen import (
+    CorpusDocument,
+    corpus_documents_from_payload,
+    with_corpus_document_attributes,
+)
 from portakal_app.ui.screens.create_corpus_screen import preview_text
 from portakal_app.ui.screens.node_screen import WorkflowNodeScreenSupport
 from portakal_app.ui.shared.cards import SectionHeader
@@ -107,6 +111,7 @@ class SentimentAnalysisScreen(QWidget, WorkflowNodeScreenSupport):
         self._documents = tuple(() if documents is None else documents)
         self._using_input_corpus = documents is not None
         self._results: tuple[SentimentResult, ...] = ()
+        self._output_documents: tuple[CorpusDocument, ...] = self._documents
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(8, 8, 8, 8)
@@ -191,8 +196,24 @@ class SentimentAnalysisScreen(QWidget, WorkflowNodeScreenSupport):
 
     def _analyze(self) -> tuple[SentimentResult, ...]:
         self._results = analyze_sentiment(self._documents)
+        self._output_documents = tuple(
+            with_corpus_document_attributes(
+                document,
+                {
+                    "sentiment_positive": result.positive_score,
+                    "sentiment_negative": result.negative_score,
+                    "sentiment_net": result.net_score,
+                    "sentiment_label": result.label,
+                },
+            )
+            for document, result in zip(self._documents, self._results, strict=False)
+        )
         self._render()
+        self._notify_output_changed()
         return self._results
+
+    def current_output_payload(self) -> WorkflowPayload:
+        return WorkflowPayload("Corpus", self._output_documents)
 
     def _render(self) -> None:
         positive = sum(1 for result in self._results if result.label == "Positive")

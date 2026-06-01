@@ -25,6 +25,25 @@ class CorpusDocument:
     title: str
     text: str
     source: str = "Sample"
+    attributes: tuple[tuple[str, object], ...] = ()
+
+
+def corpus_document_attributes(document: CorpusDocument) -> dict[str, object]:
+    return dict(document.attributes)
+
+
+def with_corpus_document_attributes(
+    document: CorpusDocument,
+    attributes: dict[str, object],
+) -> CorpusDocument:
+    merged = corpus_document_attributes(document)
+    merged.update(attributes)
+    return CorpusDocument(
+        document.title,
+        document.text,
+        document.source,
+        tuple(merged.items()),
+    )
 
 
 @dataclass(frozen=True)

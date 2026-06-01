@@ -101,6 +101,8 @@ class WorkflowNodeRecord:
 
 
 class WorkflowEdgeItem(QGraphicsPathItem):
+    DELETE_BUTTON_SIZE = 16.0
+
     def __init__(
         self,
         source_item: "WorkflowNodeItem",
@@ -117,7 +119,9 @@ class WorkflowEdgeItem(QGraphicsPathItem):
         self.target_port_id = target_port_id
         self.channel = channel
         self.input_channel = input_channel
+        self._delete_hovered = False
         self.setFlags(QGraphicsPathItem.GraphicsItemFlag.ItemIsSelectable)
+        self.setAcceptHoverEvents(True)
         self.setZValue(0)
         self._label_item = QGraphicsTextItem(self)
         self._label_item.setDefaultTextColor(QColor("#7e8ea0"))
@@ -161,12 +165,71 @@ class WorkflowEdgeItem(QGraphicsPathItem):
     def shape(self) -> QPainterPath:
         stroker = QPainterPathStroker()
         stroker.setWidth(14)
-        return stroker.createStroke(self.path())
+        path = stroker.createStroke(self.path())
+        if self.isSelected():
+            path.addEllipse(self._delete_button_rect())
+        return path
+
+    def boundingRect(self) -> QRectF:
+        rect = super().boundingRect()
+        rect = rect.united(self._delete_button_rect())
+        return rect.adjusted(-2.0, -2.0, 2.0, 2.0)
+
+    def _delete_button_rect(self) -> QRectF:
+        size = self.DELETE_BUTTON_SIZE
+        center = self.path().pointAtPercent(0.5)
+        return QRectF(center.x() - size / 2, center.y() - size / 2, size, size)
 
     def itemChange(self, change, value):
         if change == QGraphicsPathItem.GraphicsItemChange.ItemSelectedHasChanged:
             self._sync_pen()
+            self.update()
         return super().itemChange(change, value)
+
+    def paint(self, painter: QPainter, option, widget: QWidget | None = None) -> None:
+        super().paint(painter, option, widget)
+        if not self.isSelected():
+            return
+        delete_rect = self._delete_button_rect()
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        painter.setBrush(QColor("#f0b2a7") if self._delete_hovered else QColor("#f6d7d1"))
+        painter.setPen(QPen(QColor("#c15b4d"), 1.1))
+        painter.drawEllipse(delete_rect)
+        painter.setPen(QPen(QColor("#7a2418"), 1.5, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
+        painter.drawLine(
+            delete_rect.left() + 4.5,
+            delete_rect.top() + 4.5,
+            delete_rect.right() - 4.5,
+            delete_rect.bottom() - 4.5,
+        )
+        painter.drawLine(
+            delete_rect.right() - 4.5,
+            delete_rect.top() + 4.5,
+            delete_rect.left() + 4.5,
+            delete_rect.bottom() - 4.5,
+        )
+
+    def mousePressEvent(self, event) -> None:
+        if self.isSelected() and self._delete_button_rect().contains(event.pos()):
+            scene = self.scene()
+            if isinstance(scene, WorkflowScene):
+                scene.delete_edge(self)
+                event.accept()
+                return
+        super().mousePressEvent(event)
+
+    def hoverMoveEvent(self, event) -> None:
+        hovered = self.isSelected() and self._delete_button_rect().contains(event.pos())
+        if hovered != self._delete_hovered:
+            self._delete_hovered = hovered
+            self.update(self._delete_button_rect())
+        super().hoverMoveEvent(event)
+
+    def hoverLeaveEvent(self, event) -> None:
+        if self._delete_hovered:
+            self._delete_hovered = False
+            self.update(self._delete_button_rect())
+        super().hoverLeaveEvent(event)
 
     def mouseDoubleClickEvent(self, event) -> None:
         scene = self.scene()
@@ -844,7 +907,27 @@ class WorkflowScene(QGraphicsScene):
                 if emit_status:
                     self.statusMessage.emit(f"{target_node.widget_definition.label} has no input ports.")
                 return False
-            target_port_id = target_node.widget_definition.input_ports[0].id
+            source_label = next(
+                (
+                    port.label
+                    for port in source_node.widget_definition.output_ports
+                    if port.id == source_port_id
+                ),
+                "",
+            )
+            target_port_id = next(
+                (
+                    port.id
+                    for port in target_node.widget_definition.input_ports
+                    if workflow_ports_are_compatible(
+                        source_node.widget_definition.id,
+                        source_label,
+                        target_node.widget_definition.id,
+                        port.label,
+                    )
+                ),
+                target_node.widget_definition.input_ports[0].id,
+            )
 
         source_ref = WorkflowPortRef(source_node_id, source_node.widget_definition.id, "output", source_port_id)
         target_ref = WorkflowPortRef(target_node_id, target_node.widget_definition.id, "input", target_port_id)
@@ -1205,7 +1288,13 @@ class WorkflowScene(QGraphicsScene):
         source_label = self._port_label(source_ref)
         target_label = self._port_label(target_ref)
         if not workflow_ports_are_compatible(source_ref.widget_id, source_label, target_ref.widget_id, target_label):
-            return False, f"Port types do not match: {source_label} cannot connect to {target_label}."
+            message = f"This output provides {source_label}, but the selected input expects {target_label}."
+            if source_label == "Corpus" and target_label == "Words" and target_ref.widget_id == "text-word-list":
+                message += " Use Extract Keywords to convert Corpus into Words before connecting to Word List."
+            return (
+                False,
+                message,
+            )
         return True, "Connection created."
 
     def _used_input_channels(self, node_id: str, port_id: str) -> set[str]:
@@ -1321,6 +1410,14 @@ class WorkflowScene(QGraphicsScene):
             if removed_edges != 1:
                 parts[-1] += "s"
         self.statusMessage.emit(f"Deleted {' and '.join(parts)}.")
+        self._notify_workflow_changed()
+        return True
+
+    def delete_edge(self, edge: WorkflowEdgeItem) -> bool:
+        if not self._remove_edge(edge):
+            self.statusMessage.emit("Connection was already removed.")
+            return False
+        self.statusMessage.emit("Deleted 1 connection.")
         self._notify_workflow_changed()
         return True
 

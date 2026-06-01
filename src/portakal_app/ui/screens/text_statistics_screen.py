@@ -1,14 +1,20 @@
 from __future__ import annotations
 
+import re
+import string
 from collections import Counter
 from collections.abc import Sequence
 from dataclasses import dataclass
 
 from PySide6.QtCore import QSize
 from PySide6.QtWidgets import (
+    QCheckBox,
     QFrame,
     QGridLayout,
+    QHBoxLayout,
     QLabel,
+    QLineEdit,
+    QPushButton,
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
@@ -21,6 +27,7 @@ from portakal_app.ui.screens.corpus_screen import (
     CorpusDocument,
     corpus_documents_from_payload,
     count_words,
+    with_corpus_document_attributes,
 )
 from portakal_app.ui.screens.node_screen import WorkflowNodeScreenSupport
 from portakal_app.ui.shared.cards import SectionHeader
@@ -36,11 +43,66 @@ class TextStatisticsSummary:
     shortest_document_title: str
 
 
+@dataclass(frozen=True)
+class DocumentStatisticsOptions:
+    word_count: bool = True
+    character_count: bool = True
+    average_word_length: bool = True
+    percent_unique_words: bool = True
+    punctuation_count: bool = True
+    contains: bool = False
+    contains_pattern: str = ""
+
+
 def word_frequencies(documents: Sequence[CorpusDocument]) -> Counter[str]:
     counter: Counter[str] = Counter()
     for document in documents:
         counter.update(tokenize_for_bow(document.text))
     return counter
+
+
+def statistics_column_name(name: str) -> str:
+    normalized = re.sub(r"[^a-zA-Z0-9]+", "_", name.strip().lower()).strip("_")
+    return normalized or "pattern"
+
+
+def document_statistics_features(
+    document: CorpusDocument,
+    options: DocumentStatisticsOptions,
+) -> dict[str, object]:
+    tokens = tokenize_for_bow(document.text)
+    features: dict[str, object] = {}
+
+    if options.word_count:
+        features["word_count"] = len(tokens)
+    if options.character_count:
+        features["character_count"] = len(document.text)
+    if options.average_word_length:
+        features["average_word_length"] = (
+            round(sum(len(token) for token in tokens) / len(tokens), 2) if tokens else 0.0
+        )
+    if options.percent_unique_words:
+        features["percent_unique_words"] = (
+            round((len(set(tokens)) / len(tokens)) * 100, 2) if tokens else 0.0
+        )
+    if options.punctuation_count:
+        features["punctuation_count"] = sum(1 for character in document.text if character in string.punctuation)
+    pattern = options.contains_pattern.strip().lower()
+    if options.contains and pattern:
+        column_name = f"contains_{statistics_column_name(pattern)}"
+        features[column_name] = sum(1 for token in tokens if pattern in token.lower())
+
+    return features
+
+
+def enrich_corpus_with_statistics(
+    documents: Sequence[CorpusDocument],
+    options: DocumentStatisticsOptions,
+) -> tuple[CorpusDocument, ...]:
+    return tuple(
+        with_corpus_document_attributes(document, document_statistics_features(document, options))
+        for document in documents
+    )
 
 
 def summarize_text_statistics(documents: Sequence[CorpusDocument]) -> TextStatisticsSummary:
@@ -70,6 +132,7 @@ class TextStatisticsScreen(QWidget, WorkflowNodeScreenSupport):
         super().__init__(parent)
         self._init_workflow_node_support()
         self._documents = tuple(() if documents is None else documents)
+        self._output_documents: tuple[CorpusDocument, ...] = self._documents
         self._using_input_corpus = documents is not None
 
         layout = QVBoxLayout(self)
@@ -83,9 +146,10 @@ class TextStatisticsScreen(QWidget, WorkflowNodeScreenSupport):
             )
         )
         layout.addWidget(self._build_metadata_panel())
+        layout.addWidget(self._build_feature_panel())
         layout.addWidget(self._build_table_panel(), 1)
 
-        self._render()
+        self.apply_statistics()
 
     def sizeHint(self) -> QSize:
         return QSize(920, 640)
@@ -127,6 +191,51 @@ class TextStatisticsScreen(QWidget, WorkflowNodeScreenSupport):
         label.setWordWrap(True)
         return label
 
+    def _build_feature_panel(self) -> QFrame:
+        frame = QFrame(self)
+        frame.setProperty("panel", True)
+        layout = QGridLayout(frame)
+        layout.setContentsMargins(12, 12, 12, 12)
+        layout.setHorizontalSpacing(12)
+        layout.setVerticalSpacing(8)
+
+        self._word_count_checkbox = QCheckBox("Word count", self)
+        self._word_count_checkbox.setChecked(True)
+        self._character_count_checkbox = QCheckBox("Character count", self)
+        self._character_count_checkbox.setChecked(True)
+        self._average_word_length_checkbox = QCheckBox("Average word length", self)
+        self._average_word_length_checkbox.setChecked(True)
+        self._percent_unique_words_checkbox = QCheckBox("Percent unique words", self)
+        self._percent_unique_words_checkbox.setChecked(True)
+        self._punctuation_count_checkbox = QCheckBox("Punctuation count", self)
+        self._punctuation_count_checkbox.setChecked(True)
+        self._contains_checkbox = QCheckBox("Contains", self)
+
+        self._contains_input = QLineEdit(self)
+        self._contains_input.setPlaceholderText("profit")
+
+        checkboxes = (
+            self._word_count_checkbox,
+            self._character_count_checkbox,
+            self._average_word_length_checkbox,
+            self._percent_unique_words_checkbox,
+            self._punctuation_count_checkbox,
+        )
+        for index, checkbox in enumerate(checkboxes):
+            layout.addWidget(checkbox, index // 3, index % 3)
+
+        contains_layout = QHBoxLayout()
+        contains_layout.setSpacing(8)
+        contains_layout.addWidget(self._contains_checkbox)
+        contains_layout.addWidget(self._contains_input, 1)
+        layout.addLayout(contains_layout, 2, 0, 1, 2)
+
+        self._apply_button = QPushButton("Apply", self)
+        self._apply_button.setProperty("primary", True)
+        self._apply_button.clicked.connect(self.apply_statistics)
+        layout.addWidget(self._apply_button, 2, 2)
+        return frame
+
     def _build_table_panel(self) -> QFrame:
         frame = QFrame(self)
         frame.setProperty("panel", True)
@@ -152,14 +261,41 @@ class TextStatisticsScreen(QWidget, WorkflowNodeScreenSupport):
     def set_input_payload(self, payload: WorkflowPayload | None) -> None:
         if payload is None:
             self._documents = ()
+            self._output_documents = ()
             self._using_input_corpus = False
-            self._render()
+            self.apply_statistics()
             return
 
         documents = corpus_documents_from_payload(payload.value)
         self._documents = () if documents is None else documents
         self._using_input_corpus = True
+        self.apply_statistics()
+
+    def current_output_payload(self) -> WorkflowPayload:
+        return WorkflowPayload("Corpus", self._output_documents)
+
+    def selected_statistics_options(self) -> DocumentStatisticsOptions:
+        return DocumentStatisticsOptions(
+            word_count=self._word_count_checkbox.isChecked(),
+            character_count=self._character_count_checkbox.isChecked(),
+            average_word_length=self._average_word_length_checkbox.isChecked(),
+            percent_unique_words=self._percent_unique_words_checkbox.isChecked(),
+            punctuation_count=self._punctuation_count_checkbox.isChecked(),
+            contains=self._contains_checkbox.isChecked(),
+            contains_pattern=self._contains_input.text(),
+        )
+
+    def apply_statistics(self) -> tuple[CorpusDocument, ...]:
+        if not hasattr(self, "_word_count_checkbox"):
+            self._output_documents = self._documents
+        else:
+            self._output_documents = enrich_corpus_with_statistics(
+                self._documents,
+                self.selected_statistics_options(),
+            )
         self._render()
+        self._notify_output_changed()
+        return self._output_documents
 
     def _render(self) -> None:
         summary = summarize_text_statistics(self._documents)
@@ -173,7 +309,7 @@ class TextStatisticsScreen(QWidget, WorkflowNodeScreenSupport):
         self._shortest_document_label.setText(f"Shortest Document\n{summary.shortest_document_title}")
 
         if self._documents and self._using_input_corpus:
-            status = "Input corpus is connected and statistics are ready."
+            status = "Input corpus is connected and enriched statistics corpus is ready."
         elif self._using_input_corpus:
             status = "Input corpus is connected but empty."
         else:

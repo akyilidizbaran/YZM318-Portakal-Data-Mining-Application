@@ -5,11 +5,10 @@ import re
 from collections.abc import Sequence
 from dataclasses import dataclass
 
-from PySide6.QtCore import QSize
+from PySide6.QtCore import QSize, Qt
 from PySide6.QtWidgets import (
     QCheckBox,
     QFrame,
-    QGridLayout,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -34,6 +33,15 @@ from portakal_app.ui.shared.cards import SectionHeader
 
 
 _WORD_PATTERN = re.compile(r"\b\w+\b", re.UNICODE)
+_KNOWN_CATEGORIES = (
+    "business",
+    "entertainment",
+    "politics",
+    "sport",
+    "sports",
+    "tech",
+    "technology",
+)
 
 
 @dataclass(frozen=True)
@@ -44,6 +52,60 @@ class CorpusViewerFilterResult:
     error: str = ""
 
 
+class FeatureRow(QFrame):
+    def __init__(self, name: str, *, type_code: str = "S", checked: bool = True) -> None:
+        super().__init__()
+        self.setProperty("featureRow", True)
+        self._checkbox = QCheckBox(self)
+        self._badge = QLabel(type_code, self)
+        self._name_label = QLabel(name, self)
+
+        self._badge.setFixedSize(22, 22)
+        self._badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        badge_color = "#6f5a44" if type_code == "C" else "#f28c28"
+        self._badge.setStyleSheet(
+            f"border-radius: 4px; background: {badge_color}; color: white; font-weight: 700;"
+        )
+
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(8, 6, 8, 6)
+        layout.setSpacing(8)
+        layout.addWidget(self._checkbox)
+        layout.addWidget(self._badge)
+        layout.addWidget(self._name_label, 1)
+
+        self._checkbox.toggled.connect(self._sync_style)
+        self.setChecked(checked)
+
+    def isChecked(self) -> bool:
+        return self._checkbox.isChecked()
+
+    def setChecked(self, checked: bool) -> None:
+        self._checkbox.setChecked(checked)
+        self._sync_style()
+
+    def on_toggled(self, callback) -> None:
+        self._checkbox.toggled.connect(callback)
+
+    def mousePressEvent(self, event) -> None:
+        self.setChecked(not self.isChecked())
+        event.accept()
+
+    def _sync_style(self, *_args: object) -> None:
+        if self.isChecked():
+            self.setStyleSheet(
+                "QFrame[featureRow='true'] {"
+                "border: 1px solid #f0a433; border-radius: 6px; background: #fff8ee;"
+                "}"
+            )
+        else:
+            self.setStyleSheet(
+                "QFrame[featureRow='true'] {"
+                "border: 1px solid #d7c9b5; border-radius: 6px; background: #ffffff;"
+                "}"
+            )
+
+
 def corpus_viewer_unique_word_count(documents: Sequence[CorpusDocument]) -> int:
     words: set[str] = set()
     for document in documents:
@@ -51,10 +113,52 @@ def corpus_viewer_unique_word_count(documents: Sequence[CorpusDocument]) -> int:
     return len(words)
 
 
+def corpus_viewer_words_from_payload(value: object) -> tuple[str, ...]:
+    if isinstance(value, str):
+        candidates: Sequence[object] = (value,)
+    elif isinstance(value, Sequence):
+        candidates = value
+    else:
+        return ()
+
+    words: list[str] = []
+    for item in candidates:
+        if isinstance(item, str):
+            words.extend(token.lower() for token in _WORD_PATTERN.findall(item))
+        elif isinstance(item, Sequence) and item and isinstance(item[0], str):
+            words.extend(token.lower() for token in _WORD_PATTERN.findall(item[0]))
+    return tuple(dict.fromkeys(word for word in words if word))
+
+
+def infer_corpus_document_category(document: CorpusDocument) -> str:
+    for attribute in ("category", "label", "class_name", "topic"):
+        value = getattr(document, attribute, None)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+
+    metadata = getattr(document, "metadata", None) or getattr(document, "meta", None)
+    if isinstance(metadata, dict):
+        for key in ("category", "label", "class", "topic"):
+            value = metadata.get(key)
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+
+    searchable = " ".join((document.source, document.title, document.text)).lower()
+    for category in _KNOWN_CATEGORIES:
+        if re.search(rf"\b{re.escape(category)}\b", searchable):
+            if category == "sports":
+                return "sport"
+            if category == "technology":
+                return "tech"
+            return category
+    return "-"
+
+
 def filter_corpus_viewer_documents(
     documents: Sequence[CorpusDocument],
     pattern: str,
     *,
+    search_category: bool = True,
     search_title: bool = True,
     search_source: bool = True,
     search_content: bool = True,
@@ -76,6 +180,8 @@ def filter_corpus_viewer_documents(
     match_count = 0
     for index, document in enumerate(documents):
         fields: list[str] = []
+        if search_category:
+            fields.append(infer_corpus_document_category(document))
         if search_title:
             fields.append(document.title)
         if search_source:
@@ -105,6 +211,7 @@ class CorpusViewerScreen(QWidget, WorkflowNodeScreenSupport):
         self._init_workflow_node_support()
         self._documents = tuple(() if documents is None else documents)
         self._using_input_corpus = documents is not None
+        self._highlight_words: tuple[str, ...] = ()
         self._filtered_indexes: tuple[int, ...] = tuple(range(len(self._documents)))
         self._filter_result = CorpusViewerFilterResult(self._filtered_indexes, len(self._documents), 0)
 
@@ -160,45 +267,79 @@ class CorpusViewerScreen(QWidget, WorkflowNodeScreenSupport):
     def _build_filter_panel(self) -> QFrame:
         frame = QFrame(self)
         frame.setProperty("panel", True)
-        layout = QGridLayout(frame)
+        layout = QVBoxLayout(frame)
         layout.setContentsMargins(12, 12, 12, 12)
-        layout.setHorizontalSpacing(12)
-        layout.setVerticalSpacing(8)
+        layout.setSpacing(10)
 
-        layout.addWidget(QLabel("Search / RegExp Filter", self), 0, 0)
+        filter_layout = QHBoxLayout()
+        filter_layout.setSpacing(10)
+        filter_layout.addWidget(QLabel("Search / RegExp Filter", self))
         self._filter_input = QLineEdit(self)
         self._filter_input.setPlaceholderText("profit|market")
         self._filter_input.textChanged.connect(self._handle_filter_changed)
-        layout.addWidget(self._filter_input, 0, 1, 1, 5)
+        filter_layout.addWidget(self._filter_input, 1)
+        layout.addLayout(filter_layout)
 
-        self._search_title_checkbox = QCheckBox("Search title", self)
-        self._search_source_checkbox = QCheckBox("Search source", self)
-        self._search_content_checkbox = QCheckBox("Search content", self)
-        for checkbox in (
-            self._search_title_checkbox,
-            self._search_source_checkbox,
-            self._search_content_checkbox,
-        ):
-            checkbox.setChecked(True)
-            checkbox.toggled.connect(self._handle_filter_changed)
-        layout.addWidget(self._search_title_checkbox, 1, 0)
-        layout.addWidget(self._search_source_checkbox, 1, 1)
-        layout.addWidget(self._search_content_checkbox, 1, 2)
+        features_layout = QHBoxLayout()
+        features_layout.setSpacing(12)
 
-        self._show_title_checkbox = QCheckBox("Show title", self)
-        self._show_source_checkbox = QCheckBox("Show source", self)
-        self._show_content_checkbox = QCheckBox("Show content", self)
-        for checkbox in (
-            self._show_title_checkbox,
-            self._show_source_checkbox,
-            self._show_content_checkbox,
-        ):
-            checkbox.setChecked(True)
-            checkbox.toggled.connect(self._update_detail_panel)
-        layout.addWidget(self._show_title_checkbox, 2, 0)
-        layout.addWidget(self._show_source_checkbox, 2, 1)
-        layout.addWidget(self._show_content_checkbox, 2, 2)
-        layout.setColumnStretch(5, 1)
+        self._search_category_feature = FeatureRow("Category", type_code="C", checked=True)
+        self._search_title_feature = FeatureRow("Title / Name", checked=True)
+        self._search_source_feature = FeatureRow("Source / Path", checked=True)
+        self._search_content_feature = FeatureRow("Content", checked=True)
+        for row in self._search_feature_rows():
+            row.on_toggled(self._handle_filter_changed)
+
+        self._display_category_feature = FeatureRow("Category", type_code="C", checked=True)
+        self._display_title_feature = FeatureRow("Title / Name", checked=True)
+        self._display_source_feature = FeatureRow("Source / Path", checked=True)
+        self._display_content_feature = FeatureRow("Content", checked=True)
+        for row in self._display_feature_rows():
+            row.on_toggled(self._update_detail_panel)
+
+        features_layout.addWidget(
+            self._build_feature_list_panel("Search features", self._search_feature_rows()),
+            1,
+        )
+        features_layout.addWidget(
+            self._build_feature_list_panel("Display features", self._display_feature_rows()),
+            1,
+        )
+        layout.addLayout(features_layout)
+        return frame
+
+    def _search_feature_rows(self) -> tuple[FeatureRow, FeatureRow, FeatureRow, FeatureRow]:
+        return (
+            self._search_category_feature,
+            self._search_title_feature,
+            self._search_source_feature,
+            self._search_content_feature,
+        )
+
+    def _display_feature_rows(self) -> tuple[FeatureRow, FeatureRow, FeatureRow, FeatureRow]:
+        return (
+            self._display_category_feature,
+            self._display_title_feature,
+            self._display_source_feature,
+            self._display_content_feature,
+        )
+
+    def _build_feature_list_panel(self, title: str, rows: Sequence[FeatureRow]) -> QFrame:
+        frame = QFrame(self)
+        frame.setStyleSheet(
+            "QFrame { border: 1px solid #d7c9b5; border-radius: 6px; background: #fffaf2; }"
+            "QLabel { border: none; background: transparent; }"
+        )
+        layout = QVBoxLayout(frame)
+        layout.setContentsMargins(10, 8, 10, 10)
+        layout.setSpacing(6)
+
+        title_label = QLabel(title, self)
+        title_label.setProperty("muted", True)
+        layout.addWidget(title_label)
+        for row in rows:
+            layout.addWidget(row)
+        layout.addStretch(1)
         return frame
 
     def _build_document_browser(self) -> QSplitter:
@@ -221,8 +362,10 @@ class CorpusViewerScreen(QWidget, WorkflowNodeScreenSupport):
         self._status_label.setWordWrap(True)
         layout.addWidget(self._status_label)
 
-        self._table = QTableWidget(0, 4, self)
-        self._table.setHorizontalHeaderLabels(["Title", "Source", "Text Preview", "Words"])
+        self._table = QTableWidget(0, 5, self)
+        self._table.setHorizontalHeaderLabels(
+            ["Title / Name", "Category", "Source / Path", "Text Preview", "Words"]
+        )
         self._table.verticalHeader().setVisible(False)
         self._table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self._table.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
@@ -240,12 +383,16 @@ class CorpusViewerScreen(QWidget, WorkflowNodeScreenSupport):
         layout.setSpacing(8)
 
         layout.addWidget(QLabel("Document Details", self))
-        self._detail_title_label = self._build_detail_label("Title", "-")
-        self._detail_source_label = self._build_detail_label("Source", "-")
+        self._detail_category_label = self._build_detail_label("Category", "-")
+        self._detail_title_label = self._build_detail_label("Title / Name", "-")
+        self._detail_source_label = self._build_detail_label("Source / Path", "-")
         self._detail_words_label = self._build_detail_label("Words", "0")
+        self._detail_content_label = self._build_detail_label("Content", "")
+        layout.addWidget(self._detail_category_label)
         layout.addWidget(self._detail_title_label)
         layout.addWidget(self._detail_source_label)
         layout.addWidget(self._detail_words_label)
+        layout.addWidget(self._detail_content_label)
 
         self._detail_content = QTextEdit(self)
         self._detail_content.setReadOnly(True)
@@ -262,6 +409,13 @@ class CorpusViewerScreen(QWidget, WorkflowNodeScreenSupport):
         if payload is None:
             self._documents = ()
             self._using_input_corpus = False
+            self._highlight_words = ()
+            self._render()
+            self._notify_output_changed()
+            return
+
+        if payload.port_label in {"Words", "Selected Words"}:
+            self._highlight_words = corpus_viewer_words_from_payload(payload.value)
             self._render()
             self._notify_output_changed()
             return
@@ -273,10 +427,14 @@ class CorpusViewerScreen(QWidget, WorkflowNodeScreenSupport):
         self._notify_output_changed()
 
     def current_output_payload(self) -> WorkflowPayload:
-        return WorkflowPayload("Corpus", self._documents)
+        return WorkflowPayload(
+            "Corpus",
+            tuple(self._documents[index] for index in self._filtered_indexes),
+        )
 
     def _handle_filter_changed(self, *_args: object) -> None:
         self._render()
+        self._notify_output_changed()
 
     def _selected_document_index(self) -> int | None:
         selected = self._table.selectionModel().selectedRows() if self._table.selectionModel() else []
@@ -292,14 +450,17 @@ class CorpusViewerScreen(QWidget, WorkflowNodeScreenSupport):
         self._filter_result = filter_corpus_viewer_documents(
             self._documents,
             self._filter_input.text() if hasattr(self, "_filter_input") else "",
-            search_title=self._search_title_checkbox.isChecked()
-            if hasattr(self, "_search_title_checkbox")
+            search_category=self._search_category_feature.isChecked()
+            if hasattr(self, "_search_category_feature")
             else True,
-            search_source=self._search_source_checkbox.isChecked()
-            if hasattr(self, "_search_source_checkbox")
+            search_title=self._search_title_feature.isChecked()
+            if hasattr(self, "_search_title_feature")
             else True,
-            search_content=self._search_content_checkbox.isChecked()
-            if hasattr(self, "_search_content_checkbox")
+            search_source=self._search_source_feature.isChecked()
+            if hasattr(self, "_search_source_feature")
+            else True,
+            search_content=self._search_content_feature.isChecked()
+            if hasattr(self, "_search_content_feature")
             else True,
         )
         self._filtered_indexes = self._filter_result.row_indexes
@@ -335,9 +496,10 @@ class CorpusViewerScreen(QWidget, WorkflowNodeScreenSupport):
         for row, document_index in enumerate(self._filtered_indexes):
             document = self._documents[document_index]
             self._set_item(row, 0, document.title)
-            self._set_item(row, 1, document.source)
-            self._set_item(row, 2, preview_text(document.text))
-            self._set_item(row, 3, str(count_words(document.text)))
+            self._set_item(row, 1, infer_corpus_document_category(document))
+            self._set_item(row, 2, document.source)
+            self._set_item(row, 3, preview_text(document.text))
+            self._set_item(row, 4, str(count_words(document.text)))
         self._table.resizeColumnsToContents()
         self._restore_or_select_first(previous_index)
         self._update_detail_panel()
@@ -359,52 +521,38 @@ class CorpusViewerScreen(QWidget, WorkflowNodeScreenSupport):
             return
         document_index = self._selected_document_index()
         if document_index is None:
-            self._detail_title_label.setText("Title: -")
-            self._detail_source_label.setText("Source: -")
+            self._detail_category_label.setText("Category: -")
+            self._detail_title_label.setText("Title / Name: -")
+            self._detail_source_label.setText("Source / Path: -")
             self._detail_words_label.setText("Words: 0")
+            self._detail_content_label.setVisible(True)
+            self._detail_content.setVisible(True)
             self._detail_content.setHtml("<p style='color:#7e715e;'>No document selected.</p>")
             return
 
         document = self._documents[document_index]
-        show_title = self._show_title_checkbox.isChecked()
-        show_source = self._show_source_checkbox.isChecked()
-        show_content = self._show_content_checkbox.isChecked()
+        show_category = self._display_category_feature.isChecked()
+        show_title = self._display_title_feature.isChecked()
+        show_source = self._display_source_feature.isChecked()
+        show_content = self._display_content_feature.isChecked()
 
+        self._detail_category_label.setVisible(show_category)
         self._detail_title_label.setVisible(show_title)
         self._detail_source_label.setVisible(show_source)
-        self._detail_title_label.setText(f"Title: {document.title}")
-        self._detail_source_label.setText(f"Source: {document.source}")
+        self._detail_category_label.setText(f"Category: {infer_corpus_document_category(document)}")
+        self._detail_title_label.setText(f"Title / Name: {document.title}")
+        self._detail_source_label.setText(f"Source / Path: {document.source}")
         self._detail_words_label.setText(f"Words: {count_words(document.text)}")
+        self._detail_content_label.setVisible(True)
+        self._detail_content.setVisible(True)
 
         if show_content:
             self._detail_content.setHtml(self._document_content_html(document.text))
         else:
-            self._detail_content.setHtml("<p style='color:#7e715e;'>Content hidden.</p>")
+            self._detail_content.setHtml("<p style='color:#7e715e;'>Content display disabled.</p>")
 
     def _document_content_html(self, text: str) -> str:
-        escaped = html.escape(text)
-        query = self._filter_input.text().strip()
-        if query and not self._filter_result.error and self._search_content_checkbox.isChecked():
-            try:
-                regex = re.compile(query, re.IGNORECASE)
-            except re.error:
-                regex = None
-            if regex is not None:
-                parts: list[str] = []
-                last = 0
-                for match in regex.finditer(text):
-                    start, end = match.span()
-                    if start == end:
-                        continue
-                    parts.append(html.escape(text[last:start]))
-                    parts.append(
-                        "<span style='background-color:#ffe58a; color:#3b2a10;'>"
-                        f"{html.escape(text[start:end])}"
-                        "</span>"
-                    )
-                    last = end
-                parts.append(html.escape(text[last:]))
-                escaped = "".join(parts)
+        escaped = self._highlighted_text_html(text)
         empty_html = '<span style="color:#7e715e;">Empty document.</span>'
         return (
             "<div style='white-space:pre-wrap; font-family:Menlo, Consolas, monospace; "
@@ -413,10 +561,63 @@ class CorpusViewerScreen(QWidget, WorkflowNodeScreenSupport):
             "</div>"
         )
 
+    def _highlighted_text_html(self, text: str) -> str:
+        spans = self._content_highlight_spans(text)
+        if not spans:
+            return html.escape(text)
+
+        parts: list[str] = []
+        last = 0
+        for start, end in spans:
+            parts.append(html.escape(text[last:start]))
+            parts.append(
+                "<span style='background-color:#ffe58a; color:#3b2a10;'>"
+                f"{html.escape(text[start:end])}"
+                "</span>"
+            )
+            last = end
+        parts.append(html.escape(text[last:]))
+        return "".join(parts)
+
+    def _content_highlight_spans(self, text: str) -> tuple[tuple[int, int], ...]:
+        spans: list[tuple[int, int]] = []
+        query = self._filter_input.text().strip()
+        if query and not self._filter_result.error and self._search_content_feature.isChecked():
+            try:
+                regex = re.compile(query, re.IGNORECASE)
+            except re.error:
+                regex = None
+            if regex is not None:
+                for match in regex.finditer(text):
+                    start, end = match.span()
+                    if start != end:
+                        spans.append((start, end))
+
+        if self._highlight_words:
+            word_pattern = "|".join(re.escape(word) for word in self._highlight_words)
+            regex = re.compile(rf"\b(?:{word_pattern})\b", re.IGNORECASE)
+            spans.extend(match.span() for match in regex.finditer(text))
+
+        return self._merge_highlight_spans(spans)
+
+    def _merge_highlight_spans(self, spans: Sequence[tuple[int, int]]) -> tuple[tuple[int, int], ...]:
+        normalized = sorted((start, end) for start, end in spans if start < end)
+        if not normalized:
+            return ()
+        merged: list[tuple[int, int]] = [normalized[0]]
+        for start, end in normalized[1:]:
+            previous_start, previous_end = merged[-1]
+            if start <= previous_end:
+                merged[-1] = (previous_start, max(previous_end, end))
+            else:
+                merged.append((start, end))
+        return tuple(merged)
+
     def data_preview_snapshot(self) -> dict[str, object]:
         rows = [
             [
                 self._documents[index].title,
+                infer_corpus_document_category(self._documents[index]),
                 self._documents[index].source,
                 preview_text(self._documents[index].text),
                 str(count_words(self._documents[index].text)),
@@ -430,6 +631,6 @@ class CorpusViewerScreen(QWidget, WorkflowNodeScreenSupport):
                 f"{summary.total_word_count} total words, "
                 f"{summary.average_words_per_document:.1f} average words/document"
             ),
-            "headers": ["Title", "Source", "Text Preview", "Words"],
+            "headers": ["Title / Name", "Category", "Source / Path", "Text Preview", "Words"],
             "rows": rows,
         }

@@ -9,6 +9,8 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 pytest.importorskip("PySide6")
 
+from PySide6.QtGui import QColor
+
 from portakal_app.app import create_application
 from portakal_app.models import WorkflowPayload
 from portakal_app.ui import i18n
@@ -41,6 +43,7 @@ from portakal_app.ui.screens.corpus_screen import (
     CorpusScreen,
     SAMPLE_CORPORA,
     SAMPLE_CORPUS,
+    corpus_document_attributes,
     corpus_documents_from_payload,
     count_words,
     sample_corpus_by_id,
@@ -49,7 +52,9 @@ from portakal_app.ui.screens.corpus_screen import (
 from portakal_app.ui.screens.corpus_viewer_screen import (
     CorpusViewerScreen,
     corpus_viewer_unique_word_count,
+    corpus_viewer_words_from_payload,
     filter_corpus_viewer_documents,
+    infer_corpus_document_category,
 )
 from portakal_app.ui.screens.create_corpus_screen import (
     BULK_SPLIT_BLANK_LINE,
@@ -59,6 +64,7 @@ from portakal_app.ui.screens.create_corpus_screen import (
     preview_text,
     split_bulk_documents,
 )
+from portakal_app.ui.screens.data_table_screen import DataTableScreen
 from portakal_app.ui.screens.document_map_screen import DocumentMapScreen, build_document_map
 from portakal_app.ui.screens.extract_keywords_screen import ExtractKeywordsScreen, extract_keywords
 from portakal_app.ui.screens.guardian_screen import (
@@ -129,7 +135,10 @@ from portakal_app.ui.screens.twitter_screen import (
     summarize_documents as summarize_twitter_documents,
 )
 from portakal_app.ui.screens.text_statistics_screen import (
+    DocumentStatisticsOptions,
     TextStatisticsScreen,
+    document_statistics_features,
+    enrich_corpus_with_statistics,
     summarize_text_statistics,
 )
 from portakal_app.ui.screens.sentiment_analysis_screen import SentimentAnalysisScreen, analyze_sentiment
@@ -145,7 +154,11 @@ from portakal_app.ui.screens.wikipedia_screen import (
     summarize_documents,
 )
 from portakal_app.ui.screens.word_cloud_screen import WordCloudScreen, cloud_word_frequencies
-from portakal_app.ui.screens.word_list_screen import WordListScreen, build_word_list
+from portakal_app.ui.screens.word_list_screen import (
+    WordListScreen,
+    build_updated_word_list,
+    build_word_list,
+)
 
 
 PERSON_A_TEXT_MINING_WIDGETS = [
@@ -154,13 +167,13 @@ PERSON_A_TEXT_MINING_WIDGETS = [
     ("text-import-documents", "Import Documents", (), ("Corpus",)),
     ("text-create-corpus", "Create Corpus", (), ("Corpus",)),
     ("text-preprocess", "Preprocess Text", ("Corpus",), ("Corpus",)),
-    ("text-bag-of-words", "Bag of Words", ("Corpus",), ("Data",)),
-    ("text-statistics", "Statistics", ("Corpus",), ()),
-    ("text-word-list", "Word List", ("Corpus",), ("Words",)),
-    ("text-word-cloud", "Word Cloud", ("Corpus",), ()),
-    ("text-extract-keywords", "Extract Keywords", ("Corpus",), ("Keywords",)),
-    ("text-sentiment-analysis", "Sentiment Analysis", ("Corpus",), ()),
-    ("text-topic-modelling", "Topic Modelling", ("Corpus",), ("Topics",)),
+    ("text-bag-of-words", "Bag of Words", ("Corpus",), ("Corpus",)),
+    ("text-statistics", "Statistics", ("Corpus",), ("Corpus",)),
+    ("text-word-list", "Word List", ("Corpus", "Words"), ("Words", "Selected Words", "Data")),
+    ("text-word-cloud", "Word Cloud", ("Corpus",), ("Corpus", "Selected Word", "Word Counts")),
+    ("text-extract-keywords", "Extract Keywords", ("Corpus",), ("Words",)),
+    ("text-sentiment-analysis", "Sentiment Analysis", ("Corpus",), ("Corpus",)),
+    ("text-topic-modelling", "Topic Modelling", ("Corpus",), ("Corpus", "Topic")),
     ("text-document-map", "Document Map", ("Corpus",), ()),
 ]
 
@@ -725,9 +738,25 @@ def test_corpus_viewer_accepts_input_and_passes_same_corpus(app):
 
     assert screen._table.rowCount() == 2
     assert screen._table.item(0, 0).text() == "First"
-    assert screen._table.item(0, 3).text() == "2"
+    assert screen._table.item(0, 4).text() == "2"
     assert screen.current_output_payload().port_label == "Corpus"
     assert screen.current_output_payload().value == documents
+
+
+def test_corpus_viewer_infers_category_from_known_corpus_words():
+    assert (
+        infer_corpus_document_category(
+            CorpusDocument("Quarterly Update", "The market improved.", "business/report.txt")
+        )
+        == "business"
+    )
+    assert (
+        infer_corpus_document_category(
+            CorpusDocument("Match Review", "The sport result changed quickly.", "News")
+        )
+        == "sport"
+    )
+    assert infer_corpus_document_category(CorpusDocument("Plain", "neutral words", "Manual")) == "-"
 
 
 def test_corpus_viewer_filter_finds_matching_documents_and_counts_matches(app):
@@ -752,7 +781,69 @@ def test_corpus_viewer_filter_finds_matching_documents_and_counts_matches(app):
     assert screen._matching_documents_label.text().endswith("2 / 3")
     assert screen._matches_label.text().endswith("5")
     assert "ffe58a" in screen._detail_content.toHtml()
+    assert screen.current_output_payload().value == (documents[0], documents[2])
+
+
+def test_corpus_viewer_highlights_words_payload_without_filter(app):
+    documents = (
+        CorpusDocument("Market Report", "profit dollar market shares", "News"),
+        CorpusDocument("Weather", "rain tomorrow", "Forecast"),
+    )
+    screen = CorpusViewerScreen()
+
+    screen.set_input_payload(WorkflowPayload("Corpus", documents))
+    screen.set_input_payload(WorkflowPayload("Words", ("profit", "dollar", "market", "shares")))
+    app.processEvents()
+
+    assert corpus_viewer_words_from_payload(("profit", ["dollar", 2], "market shares")) == (
+        "profit",
+        "dollar",
+        "market",
+        "shares",
+    )
+    assert screen._table.rowCount() == 2
+    assert len(screen._content_highlight_spans(documents[0].text)) == 4
+    assert "ffe58a" in screen._detail_content.toHtml()
     assert screen.current_output_payload().value == documents
+
+
+def test_corpus_viewer_selected_words_payload_limits_highlight(app):
+    documents = (CorpusDocument("Market Report", "profit dollar market shares", "News"),)
+    screen = CorpusViewerScreen()
+
+    screen.set_input_payload(WorkflowPayload("Corpus", documents))
+    screen.set_input_payload(WorkflowPayload("Selected Words", ("profit",)))
+    app.processEvents()
+
+    assert screen._highlight_words == ("profit",)
+    assert screen._content_highlight_spans(documents[0].text) == ((0, 6),)
+
+    screen.set_input_payload(WorkflowPayload("Selected Words", ()))
+    app.processEvents()
+
+    assert screen._highlight_words == ()
+    assert screen._content_highlight_spans(documents[0].text) == ()
+
+
+def test_corpus_viewer_filter_can_match_category_feature(app):
+    documents = (
+        CorpusDocument("Quarterly Update", "The market improved.", "business/report.txt"),
+        CorpusDocument("Weather", "rain tomorrow", "Forecast"),
+    )
+    screen = CorpusViewerScreen()
+
+    screen.set_input_payload(WorkflowPayload("Corpus", documents))
+    screen._search_title_feature.setChecked(False)
+    screen._search_source_feature.setChecked(False)
+    screen._search_content_feature.setChecked(False)
+    screen._search_category_feature.setChecked(True)
+    screen._filter_input.setText("business")
+    app.processEvents()
+
+    assert screen._table.rowCount() == 1
+    assert screen._table.item(0, 0).text() == "Quarterly Update"
+    assert screen._table.item(0, 1).text() == "business"
+    assert screen._detail_category_label.text() == "Category: business"
 
 
 def test_corpus_viewer_filter_respects_search_scope(app):
@@ -763,14 +854,40 @@ def test_corpus_viewer_filter_respects_search_scope(app):
     screen = CorpusViewerScreen()
 
     screen.set_input_payload(WorkflowPayload("Corpus", documents))
-    screen._search_title_checkbox.setChecked(False)
-    screen._search_source_checkbox.setChecked(False)
-    screen._search_content_checkbox.setChecked(True)
+    screen._search_category_feature.setChecked(False)
+    screen._search_title_feature.setChecked(False)
+    screen._search_source_feature.setChecked(False)
+    screen._search_content_feature.setChecked(True)
     screen._filter_input.setText("profit")
     app.processEvents()
 
     assert screen._table.rowCount() == 1
     assert screen._table.item(0, 0).text() == "Body"
+
+
+def test_corpus_viewer_display_features_can_hide_content_without_crashing(app):
+    documents = (CorpusDocument("First", "profit market", "Manual"),)
+    screen = CorpusViewerScreen()
+
+    screen.set_input_payload(WorkflowPayload("Corpus", documents))
+    screen._display_content_feature.setChecked(False)
+    app.processEvents()
+
+    assert screen._detail_title_label.text() == "Title / Name: First"
+    assert screen._detail_source_label.text() == "Source / Path: Manual"
+    assert "Content display disabled" in screen._detail_content.toPlainText()
+
+
+def test_corpus_viewer_display_features_can_hide_category_without_crashing(app):
+    documents = (CorpusDocument("Quarterly Update", "The market improved.", "business/report.txt"),)
+    screen = CorpusViewerScreen()
+
+    screen.set_input_payload(WorkflowPayload("Corpus", documents))
+    screen._display_category_feature.setChecked(False)
+    app.processEvents()
+
+    assert screen._detail_category_label.isHidden()
+    assert screen._detail_title_label.text() == "Title / Name: Quarterly Update"
 
 
 def test_corpus_viewer_invalid_regex_is_safe(app):
@@ -783,7 +900,7 @@ def test_corpus_viewer_invalid_regex_is_safe(app):
 
     assert screen._table.rowCount() == 0
     assert "Invalid regular expression" in screen._status_label.text()
-    assert screen.current_output_payload().value == documents
+    assert screen.current_output_payload().value == ()
 
 
 def test_text_statistics_summary_and_screen_use_corpus_words(app):
@@ -803,6 +920,46 @@ def test_text_statistics_summary_and_screen_use_corpus_words(app):
     assert summary.shortest_document_title == "Short"
     assert screen._table.item(0, 0).text() == "apple"
     assert screen._table.item(0, 1).text() == "2"
+    payload = screen.current_output_payload()
+    assert payload.port_label == "Corpus"
+    assert len(payload.value) == len(documents)
+    attributes = corpus_document_attributes(payload.value[0])
+    assert attributes["word_count"] == 3
+    assert attributes["character_count"] == len("apple banana apple")
+    assert attributes["percent_unique_words"] == 66.67
+
+
+def test_text_statistics_enriches_corpus_with_selected_features(app):
+    document = CorpusDocument("Market", "Profit, market profit!", "Manual")
+    options = DocumentStatisticsOptions(contains=True, contains_pattern="profit")
+
+    features = document_statistics_features(document, options)
+    enriched = enrich_corpus_with_statistics((document,), options)
+
+    assert features["word_count"] == 3
+    assert features["character_count"] == len(document.text)
+    assert features["average_word_length"] == 6.0
+    assert features["percent_unique_words"] == 66.67
+    assert features["punctuation_count"] == 2
+    assert features["contains_profit"] == 2
+    assert enriched[0].title == document.title
+    assert enriched[0].text == document.text
+    assert corpus_document_attributes(enriched[0])["contains_profit"] == 2
+
+
+def test_text_statistics_apply_updates_contains_output(app):
+    documents = (CorpusDocument("Market", "profit dollar profit", "Manual"),)
+    screen = TextStatisticsScreen()
+
+    screen.set_input_payload(WorkflowPayload("Corpus", documents))
+    screen._contains_checkbox.setChecked(True)
+    screen._contains_input.setText("profit")
+    screen.apply_statistics()
+    app.processEvents()
+
+    output_documents = screen.current_output_payload().value
+    assert len(output_documents) == 1
+    assert corpus_document_attributes(output_documents[0])["contains_profit"] == 2
 
 
 def test_word_list_builds_frequency_and_document_counts(app):
@@ -820,7 +977,200 @@ def test_word_list_builds_frequency_and_document_counts(app):
     assert items[0].document_count == 2
     assert screen._table.rowCount() == 3
     assert screen._table.item(0, 0).text() == "apple"
-    assert screen.current_output_payload().port_label == "Words"
+    assert screen._table.item(0, 3).text() == "Corpus"
+    payload = screen.current_output_payload()
+    dataset = payload.dataset
+    assert payload.port_label == "Data"
+    assert dataset is not None
+    assert dataset.dataframe.columns == ["Word", "Frequency", "Documents", "Source"]
+    assert dataset.dataframe.get_column("Word").to_list()[0] == "apple"
+    assert dataset.dataframe.get_column("Frequency").to_list()[0] == 3
+    assert dataset.dataframe.get_column("Documents").to_list()[0] == 2
+    payloads = screen.current_output_payloads()
+    assert payloads["Words"].value == ("apple", "banana", "carrot")
+    assert payloads["Selected Words"].value == ()
+    assert payloads["Data"].dataset is dataset
+
+
+def test_word_list_custom_words_and_update_modes(app):
+    documents = (
+        CorpusDocument("First", "apple apple banana"),
+        CorpusDocument("Second", "banana carrot apple"),
+    )
+    screen = WordListScreen()
+
+    screen.set_input_payload(WorkflowPayload("Corpus", documents))
+    screen.add_custom_word("apple dragonfruit")
+
+    screen.set_update_mode("Intersection")
+    app.processEvents()
+    assert [screen._table.item(row, 0).text() for row in range(screen._table.rowCount())] == ["apple"]
+    assert screen._table.item(0, 3).text() == "Corpus + Custom"
+
+    screen.set_update_mode("Union")
+    app.processEvents()
+    words = {screen._table.item(row, 0).text() for row in range(screen._table.rowCount())}
+    assert {"apple", "banana", "carrot", "dragonfruit"}.issubset(words)
+    dragonfruit_row = next(
+        row for row in range(screen._table.rowCount()) if screen._table.item(row, 0).text() == "dragonfruit"
+    )
+    assert screen._table.item(dragonfruit_row, 1).text() == "0"
+    assert screen._table.item(dragonfruit_row, 3).text() == "Custom"
+
+    screen.set_update_mode("Ignore input")
+    app.processEvents()
+    assert {screen._table.item(row, 0).text() for row in range(screen._table.rowCount())} == {
+        "apple",
+        "dragonfruit",
+    }
+    payload = screen.current_output_payload()
+    dataset = payload.dataset
+    assert dataset is not None
+    assert set(dataset.dataframe.get_column("Word").to_list()) == {"apple", "dragonfruit"}
+    dragonfruit = dataset.dataframe.filter(dataset.dataframe.get_column("Word") == "dragonfruit").row(0, named=True)
+    assert dragonfruit["Frequency"] == 0
+    assert dragonfruit["Documents"] == 0
+    assert dragonfruit["Source"] == "Custom"
+
+
+def test_word_list_only_corpus_default_search_sort_and_stopword_warning(app):
+    documents = (
+        CorpusDocument("First", "the the the profit apple"),
+        CorpusDocument("Second", "profit market"),
+    )
+    screen = WordListScreen()
+
+    screen.set_input_payload(WorkflowPayload("Corpus", documents))
+
+    assert screen._update_mode_combo.currentText() == "Only input"
+    assert screen._table.item(0, 0).text() == "the"
+    assert "Common stopwords detected" in screen._status_label.text()
+
+    screen._search_input.setText("profit")
+    app.processEvents()
+    assert screen._table.rowCount() == 1
+    assert screen._table.item(0, 0).text() == "profit"
+
+    screen._search_input.clear()
+    screen._sort_combo.setCurrentText("Sort Alphabetically")
+    app.processEvents()
+    assert screen._table.item(0, 0).text() == "apple"
+
+
+def test_word_list_update_helper_modes_are_deterministic():
+    corpus_items = (
+        build_word_list((CorpusDocument("First", "apple apple banana"),))[0],
+        build_word_list((CorpusDocument("Second", "banana carrot"),))[0],
+    )
+
+    rows = build_updated_word_list(corpus_items, ("apple", "dragonfruit"), update_mode="Union")
+
+    assert any(row.word == "dragonfruit" and row.source == "Custom" for row in rows)
+    assert any(row.word == "apple" and row.source == "Corpus + Custom" for row in rows)
+
+    ignored_input = build_updated_word_list(corpus_items, ("apple", "dragonfruit"), update_mode="Ignore input")
+    assert {row.word for row in ignored_input} == {"apple", "dragonfruit"}
+
+
+def test_word_list_words_selected_words_and_data_outputs(app):
+    documents = (
+        CorpusDocument("First", "profit profit market"),
+        CorpusDocument("Second", "dollar shares market"),
+    )
+    screen = WordListScreen()
+
+    screen.set_input_payload(WorkflowPayload("Corpus", documents))
+    screen.add_custom_word("profit, dollar, market, shares")
+    screen.set_update_mode("Ignore input")
+    app.processEvents()
+
+    payloads = screen.current_output_payloads()
+    assert set(payloads["Words"].value) == {"profit", "dollar", "market", "shares"}
+    assert payloads["Data"].dataset.dataframe.columns == ["Word", "Frequency", "Documents", "Source"]
+
+    profit_row = next(
+        row for row in range(screen._table.rowCount()) if screen._table.item(row, 0).text() == "profit"
+    )
+    screen._table.selectRow(profit_row)
+    app.processEvents()
+
+    payloads = screen.current_output_payloads()
+    assert payloads["Selected Words"].value == ("profit",)
+    profit = payloads["Data"].dataset.dataframe.filter(
+        payloads["Data"].dataset.dataframe.get_column("Word") == "profit"
+    ).row(0, named=True)
+    assert profit["Frequency"] == 2
+    assert profit["Documents"] == 1
+    assert profit["Source"] == "Corpus + Custom"
+
+
+def test_word_list_custom_words_get_frequency_counts_from_corpus_input(app):
+    documents = (
+        CorpusDocument("Market", "profit profits dollar market shares shares", "Manual"),
+        CorpusDocument("Finance", "market dollar profit", "Manual"),
+    )
+    screen = WordListScreen()
+
+    screen.add_custom_word("profit profits dollar market shares")
+    screen.set_input_payload(WorkflowPayload("Corpus", documents))
+    screen.set_update_mode("Ignore input")
+    app.processEvents()
+
+    rows = {
+        screen._table.item(row, 0).text(): (
+            int(screen._table.item(row, 1).text()),
+            int(screen._table.item(row, 2).text()),
+            screen._table.item(row, 3).text(),
+        )
+        for row in range(screen._table.rowCount())
+    }
+    assert rows["profit"] == (2, 2, "Corpus + Custom")
+    assert rows["shares"] == (2, 1, "Corpus + Custom")
+    assert rows["market"] == (2, 2, "Corpus + Custom")
+
+
+def test_word_list_custom_words_without_corpus_keep_zero_counts(app):
+    screen = WordListScreen()
+
+    screen.add_custom_word("profit dollar")
+    app.processEvents()
+
+    rows = {
+        screen._table.item(row, 0).text(): (
+            screen._table.item(row, 1).text(),
+            screen._table.item(row, 2).text(),
+            screen._table.item(row, 3).text(),
+        )
+        for row in range(screen._table.rowCount())
+    }
+    assert rows == {"dollar": ("0", "0", "Custom"), "profit": ("0", "0", "Custom")}
+    assert "Connect a Corpus input to add frequency counts" in screen._status_label.text()
+
+
+def test_word_list_combines_words_input_with_corpus_counts(app):
+    documents = (
+        CorpusDocument("Market", "profit profit market", "Manual"),
+        CorpusDocument("Dollar", "dollar market", "Manual"),
+    )
+    screen = WordListScreen()
+
+    screen.set_input_payload(WorkflowPayload("Corpus", documents))
+    screen.set_input_payload(WorkflowPayload("Words", ("profit", "shares")))
+    screen.add_custom_word("market shares")
+    screen.set_update_mode("Union")
+    app.processEvents()
+
+    rows = {
+        screen._table.item(row, 0).text(): (
+            int(screen._table.item(row, 1).text()),
+            int(screen._table.item(row, 2).text()),
+            screen._table.item(row, 3).text(),
+        )
+        for row in range(screen._table.rowCount())
+    }
+    assert rows["profit"] == (2, 1, "Corpus + Input")
+    assert rows["market"] == (2, 2, "Corpus + Custom")
+    assert rows["shares"] == (0, 0, "Input + Custom")
 
 
 def test_word_cloud_builds_frequency_view_from_corpus(app):
@@ -834,7 +1184,58 @@ def test_word_cloud_builds_frequency_view_from_corpus(app):
 
     assert cloud_word_frequencies(documents) == (("apple", 3), ("banana", 2), ("carrot", 1))
     assert screen._table.rowCount() == 3
-    assert "apple" in screen._cloud_label.text()
+    assert any(word.word == "apple" for word in screen._cloud_canvas.words())
+    assert screen.current_output_payloads()["Word Counts"].dataset.dataframe.columns == ["Word", "Frequency"]
+
+
+def test_word_cloud_canvas_avoids_overlapping_word_rects(app):
+    text = " ".join(
+        word
+        for index in range(100)
+        for word in [f"word{index}"] * (100 - index)
+    )
+    screen = WordCloudScreen()
+    screen._cloud_canvas.resize(1120, 420)
+    screen._top_words_spinbox.setValue(100)
+
+    screen.set_input_payload(WorkflowPayload("Corpus", (CorpusDocument("Dense", text, "Manual"),)))
+    app.processEvents()
+
+    words = screen._cloud_canvas.words()
+    assert len(words) >= 45
+    for index, word in enumerate(words):
+        for other in words[index + 1:]:
+            assert not word.rect.intersects(other.rect), f"{word.word} overlaps {other.word}"
+
+
+def test_word_cloud_hover_and_selection_sync_table_and_canvas(app):
+    documents = (
+        CorpusDocument("First", "profit profit market"),
+        CorpusDocument("Second", "market shares"),
+    )
+    screen = WordCloudScreen()
+
+    screen.set_input_payload(WorkflowPayload("Corpus", documents))
+    screen._set_hovered_word("profit")
+    app.processEvents()
+
+    assert screen._hovered_word == "profit"
+    assert screen._cloud_canvas._hovered_word == "profit"
+    profit_row = next(
+        row for row in range(screen._table.rowCount()) if screen._table.item(row, 0).text() == "profit"
+    )
+    assert screen._table.item(profit_row, 0).background().color() == QColor("#fff1ce")
+
+    market_row = next(
+        row for row in range(screen._table.rowCount()) if screen._table.item(row, 0).text() == "market"
+    )
+    screen._table.selectRow(market_row)
+    app.processEvents()
+
+    assert screen.selected_word() == "market"
+    assert screen._cloud_canvas._selected_word == "market"
+    assert screen.current_output_payloads()["Selected Word"].value == "market"
+    assert {document.title for document in screen.current_output_payload().value} == {"First", "Second"}
 
 
 def test_extract_keywords_uses_corpus_terms_and_outputs_keywords(app):
@@ -849,7 +1250,8 @@ def test_extract_keywords_uses_corpus_terms_and_outputs_keywords(app):
 
     assert any(item.keyword == "apple" for item in keywords)
     assert screen._table.rowCount() == 4
-    assert screen.current_output_payload().port_label == "Keywords"
+    assert screen.current_output_payload().port_label == "Words"
+    assert screen.current_output_payload().value
     assert screen._table.item(0, 1).text() in {"apple", "carrot"}
 
 
@@ -888,7 +1290,8 @@ def test_topic_modelling_builds_topics_and_document_assignments(app):
     assert len(result.document_topics) == 3
     assert screen._topics_table.rowCount() == 2
     assert screen._documents_table.rowCount() == 3
-    assert screen.current_output_payload().port_label == "Topics"
+    assert screen.current_output_payload().port_label == "Corpus"
+    assert "Topic" in screen.current_output_payloads()
 
 
 def test_topic_modelling_handles_too_small_corpus_without_crashing(app):
@@ -1441,32 +1844,362 @@ def test_main_window_can_route_preprocess_text_output_to_person_b_widgets(app):
     preprocess_record = window._workspace.canvas.add_workflow_node("text-preprocess")
     viewer_record = window._workspace.canvas.add_workflow_node("text-corpus-viewer")
     statistics_record = window._workspace.canvas.add_workflow_node("text-statistics")
-    word_list_record = window._workspace.canvas.add_workflow_node("text-word-list")
     word_cloud_record = window._workspace.canvas.add_workflow_node("text-word-cloud")
     scene = window._workspace.canvas.workflow_scene
 
     assert scene.create_connection(create_record.node_id, preprocess_record.node_id)
     assert scene.create_connection(preprocess_record.node_id, viewer_record.node_id)
     assert scene.create_connection(preprocess_record.node_id, statistics_record.node_id)
-    assert scene.create_connection(preprocess_record.node_id, word_list_record.node_id)
     assert scene.create_connection(preprocess_record.node_id, word_cloud_record.node_id)
 
     create_runtime = window._node_runtimes[create_record.node_id]
     viewer_runtime = window._node_runtimes[viewer_record.node_id]
     statistics_runtime = window._node_runtimes[statistics_record.node_id]
-    word_list_runtime = window._node_runtimes[word_list_record.node_id]
     word_cloud_runtime = window._node_runtimes[word_cloud_record.node_id]
     create_runtime.screen.add_document("Workflow Text", "Apple, apple! Banana.", "Manual")
     app.processEvents()
 
     assert isinstance(viewer_runtime.screen, CorpusViewerScreen)
     assert isinstance(statistics_runtime.screen, TextStatisticsScreen)
-    assert isinstance(word_list_runtime.screen, WordListScreen)
     assert isinstance(word_cloud_runtime.screen, WordCloudScreen)
-    assert viewer_runtime.screen._table.item(0, 2).text() == "apple apple banana"
+    assert viewer_runtime.screen._table.item(0, 3).text() == "apple apple banana"
     assert statistics_runtime.screen._table.item(0, 0).text() == "apple"
-    assert word_list_runtime.screen._table.item(0, 0).text() == "apple"
     assert word_cloud_runtime.screen._table.item(0, 0).text() == "apple"
+
+
+def test_workflow_connections_can_be_deleted_and_reconnected(app):
+    window = MainWindow()
+    create_record = window._workspace.canvas.add_workflow_node("text-create-corpus")
+    preprocess_record = window._workspace.canvas.add_workflow_node("text-preprocess")
+    scene = window._workspace.canvas.workflow_scene
+
+    assert scene.create_connection(create_record.node_id, preprocess_record.node_id)
+    assert scene.edge_count() == 1
+
+    edge = scene._edges[0]
+    scene.clearSelection()
+    edge.setSelected(True)
+    assert scene.delete_selected_items() is True
+    assert scene.edge_count() == 0
+
+    assert scene.create_connection(create_record.node_id, preprocess_record.node_id)
+    assert scene.edge_count() == 1
+    assert scene.delete_edge(scene._edges[0]) is True
+    assert scene.edge_count() == 0
+    assert scene.create_connection(create_record.node_id, preprocess_record.node_id)
+    assert scene.edge_count() == 1
+
+
+def test_main_window_can_route_statistics_output_to_corpus_widgets_and_data_table(app):
+    window = MainWindow()
+    create_record = window._workspace.canvas.add_workflow_node("text-create-corpus")
+    preprocess_record = window._workspace.canvas.add_workflow_node("text-preprocess")
+    statistics_record = window._workspace.canvas.add_workflow_node("text-statistics")
+    viewer_record = window._workspace.canvas.add_workflow_node("text-corpus-viewer")
+    word_cloud_record = window._workspace.canvas.add_workflow_node("text-word-cloud")
+    data_table_record = window._workspace.canvas.add_workflow_node("data-table")
+    scene = window._workspace.canvas.workflow_scene
+
+    assert scene.create_connection(create_record.node_id, preprocess_record.node_id)
+    assert scene.create_connection(preprocess_record.node_id, statistics_record.node_id)
+    assert scene.create_connection(statistics_record.node_id, viewer_record.node_id)
+    assert scene.create_connection(statistics_record.node_id, word_cloud_record.node_id)
+    assert scene.create_connection(statistics_record.node_id, data_table_record.node_id)
+
+    create_runtime = window._node_runtimes[create_record.node_id]
+    statistics_runtime = window._node_runtimes[statistics_record.node_id]
+    viewer_runtime = window._node_runtimes[viewer_record.node_id]
+    word_cloud_runtime = window._node_runtimes[word_cloud_record.node_id]
+    data_table_runtime = window._node_runtimes[data_table_record.node_id]
+    create_runtime.screen.add_document("Market", "Profit, profit market!", "Manual")
+    statistics_runtime.screen._contains_checkbox.setChecked(True)
+    statistics_runtime.screen._contains_input.setText("profit")
+    statistics_runtime.screen.apply_statistics()
+    app.processEvents()
+
+    assert isinstance(statistics_runtime.screen, TextStatisticsScreen)
+    assert isinstance(viewer_runtime.screen, CorpusViewerScreen)
+    assert isinstance(word_cloud_runtime.screen, WordCloudScreen)
+    assert isinstance(data_table_runtime.screen, DataTableScreen)
+    output_documents = statistics_runtime.screen.current_output_payload().value
+    assert len(output_documents) == 1
+    assert corpus_document_attributes(output_documents[0])["word_count"] == 3
+    assert corpus_document_attributes(output_documents[0])["contains_profit"] == 2
+    assert viewer_runtime.screen._table.rowCount() == 1
+    assert word_cloud_runtime.screen._table.item(0, 0).text() == "profit"
+    assert data_table_runtime.screen._headers[:3] == ["Document", "Source", "Text"]
+    assert "word_count" in data_table_runtime.screen._headers
+    assert "character_count" in data_table_runtime.screen._headers
+    assert "contains_profit" in data_table_runtime.screen._headers
+    assert len(data_table_runtime.screen._rows) == 1
+
+
+def test_main_window_can_route_corpus_viewer_output_to_word_cloud(app):
+    window = MainWindow()
+    create_record = window._workspace.canvas.add_workflow_node("text-create-corpus")
+    viewer_record = window._workspace.canvas.add_workflow_node("text-corpus-viewer")
+    word_cloud_record = window._workspace.canvas.add_workflow_node("text-word-cloud")
+    scene = window._workspace.canvas.workflow_scene
+
+    assert scene.create_connection(create_record.node_id, viewer_record.node_id)
+    assert scene.create_connection(viewer_record.node_id, word_cloud_record.node_id)
+
+    create_runtime = window._node_runtimes[create_record.node_id]
+    viewer_runtime = window._node_runtimes[viewer_record.node_id]
+    word_cloud_runtime = window._node_runtimes[word_cloud_record.node_id]
+    create_runtime.screen.add_document("Market", "profit market", "Manual")
+    create_runtime.screen.add_document("Weather", "rain cloud", "Manual")
+    viewer_runtime.screen._filter_input.setText("profit")
+    app.processEvents()
+
+    assert viewer_runtime.screen.current_output_payload().value[0].title == "Market"
+    assert word_cloud_runtime.screen._table.rowCount() == 2
+    assert word_cloud_runtime.screen._table.item(0, 0).text() in {"market", "profit"}
+
+
+def test_main_window_can_route_word_cloud_word_counts_to_data_table(app):
+    window = MainWindow()
+    create_record = window._workspace.canvas.add_workflow_node("text-create-corpus")
+    word_cloud_record = window._workspace.canvas.add_workflow_node("text-word-cloud")
+    data_table_record = window._workspace.canvas.add_workflow_node("data-table")
+    scene = window._workspace.canvas.workflow_scene
+    word_cloud_definition = window._widget_index["text-word-cloud"]
+    data_table_definition = window._widget_index["data-table"]
+    word_counts_output_port_id = next(
+        port.id for port in word_cloud_definition.output_ports if port.label == "Word Counts"
+    )
+    data_input_port_id = data_table_definition.input_ports[0].id
+
+    assert scene.create_connection(create_record.node_id, word_cloud_record.node_id)
+    assert scene.create_connection(
+        word_cloud_record.node_id,
+        data_table_record.node_id,
+        source_port_id=word_counts_output_port_id,
+        target_port_id=data_input_port_id,
+        channel="Word Counts",
+    )
+
+    create_runtime = window._node_runtimes[create_record.node_id]
+    data_table_runtime = window._node_runtimes[data_table_record.node_id]
+    create_runtime.screen.add_document("Market", "profit profit market", "Manual")
+    app.processEvents()
+
+    assert data_table_runtime.screen._headers == ["Word", "Frequency"]
+    assert data_table_runtime.screen._rows[0] == ["profit", "2"]
+
+
+def test_main_window_can_route_word_list_output_to_data_table(app, tmp_path):
+    path = tmp_path / "word-list-source.txt"
+    path.write_text("profit profit market", encoding="utf-8")
+    window = MainWindow()
+    import_record = window._workspace.canvas.add_workflow_node("text-import-documents")
+    keywords_record = window._workspace.canvas.add_workflow_node("text-extract-keywords")
+    word_list_record = window._workspace.canvas.add_workflow_node("text-word-list")
+    data_table_record = window._workspace.canvas.add_workflow_node("data-table")
+    scene = window._workspace.canvas.workflow_scene
+    keywords_definition = window._widget_index["text-extract-keywords"]
+    word_list_definition = window._widget_index["text-word-list"]
+    data_table_definition = window._widget_index["data-table"]
+    words_output_port_id = next(
+        port.id for port in keywords_definition.output_ports if port.label == "Words"
+    )
+    words_input_port_id = next(
+        port.id for port in word_list_definition.input_ports if port.label == "Words"
+    )
+    data_output_port_id = next(
+        port.id for port in word_list_definition.output_ports if port.label == "Data"
+    )
+    data_input_port_id = data_table_definition.input_ports[0].id
+
+    assert scene.create_connection(import_record.node_id, keywords_record.node_id)
+    assert scene.create_connection(
+        keywords_record.node_id,
+        word_list_record.node_id,
+        source_port_id=words_output_port_id,
+        target_port_id=words_input_port_id,
+    )
+    assert scene.create_connection(
+        word_list_record.node_id,
+        data_table_record.node_id,
+        source_port_id=data_output_port_id,
+        target_port_id=data_input_port_id,
+        channel="Data",
+    )
+
+    import_runtime = window._node_runtimes[import_record.node_id]
+    keywords_runtime = window._node_runtimes[keywords_record.node_id]
+    word_list_runtime = window._node_runtimes[word_list_record.node_id]
+    data_table_runtime = window._node_runtimes[data_table_record.node_id]
+    import_runtime.screen.import_paths((path,))
+    app.processEvents()
+
+    assert isinstance(keywords_runtime.screen, ExtractKeywordsScreen)
+    assert isinstance(word_list_runtime.screen, WordListScreen)
+    assert isinstance(data_table_runtime.screen, DataTableScreen)
+    assert word_list_runtime.screen.current_output_payload().port_label == "Data"
+    assert data_table_runtime.screen._headers == ["Word", "Frequency", "Documents", "Source"]
+    assert data_table_runtime.screen._rows
+    assert data_table_runtime.screen._rows[0][0] in {"profit", "market"}
+
+
+def test_word_list_data_channel_to_data_table_persists_when_default_output_port_is_used(app):
+    window = MainWindow()
+    word_list_record = window._workspace.canvas.add_workflow_node("text-word-list")
+    data_table_record = window._workspace.canvas.add_workflow_node("data-table")
+    scene = window._workspace.canvas.workflow_scene
+    word_list_definition = window._widget_index["text-word-list"]
+    data_table_definition = window._widget_index["data-table"]
+    words_output_port_id = next(
+        port.id for port in word_list_definition.output_ports if port.label == "Words"
+    )
+    data_input_port_id = data_table_definition.input_ports[0].id
+
+    assert tuple(port.label for port in data_table_definition.input_ports) == ("Data",)
+    assert scene.create_connection(
+        word_list_record.node_id,
+        data_table_record.node_id,
+        source_port_id=words_output_port_id,
+        target_port_id=data_input_port_id,
+        channel="Data",
+    )
+
+    word_list_runtime = window._node_runtimes[word_list_record.node_id]
+    data_table_runtime = window._node_runtimes[data_table_record.node_id]
+    word_list_runtime.screen.add_custom_word("profit dollar market shares")
+    word_list_runtime.screen.set_update_mode("Ignore input")
+    app.processEvents()
+
+    snapshot = scene.snapshot()
+    assert scene.edge_count() == 1
+    assert snapshot["edges"][0]["channel"] == "Data"
+    assert data_table_runtime.screen._headers == ["Word", "Frequency", "Documents", "Source"]
+    assert {row[0] for row in data_table_runtime.screen._rows} == {"profit", "dollar", "market", "shares"}
+
+
+def test_word_list_words_channel_can_feed_data_table_as_single_word_column(app):
+    window = MainWindow()
+    word_list_record = window._workspace.canvas.add_workflow_node("text-word-list")
+    data_table_record = window._workspace.canvas.add_workflow_node("data-table")
+    scene = window._workspace.canvas.workflow_scene
+    word_list_definition = window._widget_index["text-word-list"]
+    data_table_definition = window._widget_index["data-table"]
+    words_output_port_id = next(
+        port.id for port in word_list_definition.output_ports if port.label == "Words"
+    )
+
+    assert scene.create_connection(
+        word_list_record.node_id,
+        data_table_record.node_id,
+        source_port_id=words_output_port_id,
+        target_port_id=data_table_definition.input_ports[0].id,
+        channel="Words",
+    )
+
+    word_list_runtime = window._node_runtimes[word_list_record.node_id]
+    data_table_runtime = window._node_runtimes[data_table_record.node_id]
+    word_list_runtime.screen.add_custom_word("profit dollar")
+    word_list_runtime.screen.set_update_mode("Ignore input")
+    app.processEvents()
+
+    assert data_table_runtime.screen._headers == ["Word"]
+    assert {row[0] for row in data_table_runtime.screen._rows} == {"profit", "dollar"}
+
+
+def test_preprocess_text_output_connects_to_word_list_corpus_input(app):
+    window = MainWindow()
+    preprocess_record = window._workspace.canvas.add_workflow_node("text-preprocess")
+    word_list_record = window._workspace.canvas.add_workflow_node("text-word-list")
+    scene = window._workspace.canvas.workflow_scene
+
+    assert scene.create_connection(preprocess_record.node_id, word_list_record.node_id)
+    snapshot = scene.snapshot()
+    word_list_definition = window._widget_index["text-word-list"]
+    corpus_input_port_id = next(
+        port.id for port in word_list_definition.input_ports if port.label == "Corpus"
+    )
+    assert snapshot["edges"][0]["target_port_id"] == corpus_input_port_id
+
+
+def test_import_documents_output_connects_to_word_list_corpus_input(app, tmp_path):
+    path = tmp_path / "word-list-corpus.txt"
+    path.write_text("profit profit market", encoding="utf-8")
+    window = MainWindow()
+    import_record = window._workspace.canvas.add_workflow_node("text-import-documents")
+    word_list_record = window._workspace.canvas.add_workflow_node("text-word-list")
+    scene = window._workspace.canvas.workflow_scene
+
+    assert scene.create_connection(import_record.node_id, word_list_record.node_id)
+
+    import_runtime = window._node_runtimes[import_record.node_id]
+    word_list_runtime = window._node_runtimes[word_list_record.node_id]
+    import_runtime.screen.import_paths((path,))
+    word_list_runtime.screen.add_custom_word("profit market")
+    word_list_runtime.screen.set_update_mode("Ignore input")
+    app.processEvents()
+
+    assert word_list_runtime.screen._table.rowCount() == 2
+    profit_row = next(
+        row for row in range(word_list_runtime.screen._table.rowCount())
+        if word_list_runtime.screen._table.item(row, 0).text() == "profit"
+    )
+    assert word_list_runtime.screen._table.item(profit_row, 1).text() == "2"
+    assert word_list_runtime.screen._table.item(profit_row, 2).text() == "1"
+
+
+def test_extract_keywords_output_connects_to_word_list_words_input_by_default(app):
+    window = MainWindow()
+    keywords_record = window._workspace.canvas.add_workflow_node("text-extract-keywords")
+    word_list_record = window._workspace.canvas.add_workflow_node("text-word-list")
+    scene = window._workspace.canvas.workflow_scene
+
+    assert scene.create_connection(keywords_record.node_id, word_list_record.node_id)
+    snapshot = scene.snapshot()
+    word_list_definition = window._widget_index["text-word-list"]
+    words_input_port_id = next(
+        port.id for port in word_list_definition.input_ports if port.label == "Words"
+    )
+    assert snapshot["edges"][0]["target_port_id"] == words_input_port_id
+
+
+def test_word_list_outputs_do_not_connect_to_corpus_inputs(app):
+    window = MainWindow()
+    word_list_record = window._workspace.canvas.add_workflow_node("text-word-list")
+    viewer_record = window._workspace.canvas.add_workflow_node("text-corpus-viewer")
+    word_cloud_record = window._workspace.canvas.add_workflow_node("text-word-cloud")
+    scene = window._workspace.canvas.workflow_scene
+    word_list_definition = window._widget_index["text-word-list"]
+    words_output_port_id = next(
+        port.id for port in word_list_definition.output_ports if port.label == "Words"
+    )
+    data_output_port_id = next(
+        port.id for port in word_list_definition.output_ports if port.label == "Data"
+    )
+
+    assert not scene.create_connection(
+        word_list_record.node_id,
+        viewer_record.node_id,
+        source_port_id=words_output_port_id,
+    )
+    assert "provides Words" in window.state.status_message
+    assert "expects Corpus" in window.state.status_message
+    assert not scene.create_connection(
+        word_list_record.node_id,
+        word_cloud_record.node_id,
+        source_port_id=data_output_port_id,
+    )
+    assert "provides Data" in window.state.status_message
+    assert "expects Corpus" in window.state.status_message
+
+
+def test_data_table_output_does_not_connect_to_word_cloud_corpus_input(app):
+    window = MainWindow()
+    data_table_record = window._workspace.canvas.add_workflow_node("data-table")
+    word_cloud_record = window._workspace.canvas.add_workflow_node("text-word-cloud")
+    scene = window._workspace.canvas.workflow_scene
+
+    assert not scene.create_connection(data_table_record.node_id, word_cloud_record.node_id)
+    assert "provides Data" in window.state.status_message
+    assert "expects Corpus" in window.state.status_message
 
 
 def test_main_window_can_route_preprocess_text_output_to_advanced_text_widgets(app):

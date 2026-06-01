@@ -188,8 +188,8 @@ class ExtractKeywordsScreen(QWidget, WorkflowNodeScreenSupport):
         self.apply_options()
 
     def current_output_payload(self) -> WorkflowPayload:
-        rows = [[item.document, item.keyword, item.score, item.frequency] for item in self._keywords]
-        return WorkflowPayload("Keywords", rows)
+        words = tuple(dict.fromkeys(item.keyword for item in self._keywords))
+        return WorkflowPayload("Words", words)
 
     def apply_options(self) -> tuple[KeywordItem, ...]:
         self._keywords = extract_keywords(
