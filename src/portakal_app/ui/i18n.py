@@ -61,6 +61,7 @@ class I18nManager(QObject):
                 "Corpus Viewer": "Derlem Görüntüleyici",
                 "Inspect corpus documents.": "Derlem belgelerini incele.",
                 "Import Documents": "Belgeleri İçe Aktar",
+                "Import local text files and folders into a corpus.": "Yerel metin dosyalarını ve klasörleri korpusa aktarın.",
                 "Create Corpus": "Korpus Oluştur",
                 "Create a small text corpus manually.": "Küçük bir metin korpusunu elle oluştur.",
                 "The Guardian": "The Guardian",

@@ -17,26 +17,43 @@ from portakal_app.ui.icons import get_widget_icon
 from portakal_app.ui.main_window import MainWindow
 from portakal_app.ui.shell.widget_catalog import WidgetCatalogButton
 from portakal_app.ui.screens.bag_of_words_screen import (
+    DF_IDF,
+    DF_SMOOTH_IDF,
+    NORM_L1,
+    NORM_L2,
+    TF_SUBLINEAR,
     BagOfWordsScreen,
+    apply_global_weighting,
+    apply_local_weighting,
     build_document_term_matrix,
+    build_weighted_document_term_matrix,
     build_vocabulary,
+    document_frequencies,
+    format_matrix_value,
+    normalize_matrix,
     summarize_bow,
     term_frequencies,
     tokenize_for_bow,
+    weighting_summary,
 )
 from portakal_app.ui.screens.corpus_screen import (
     CorpusDocument,
     CorpusScreen,
+    SAMPLE_CORPORA,
     SAMPLE_CORPUS,
     corpus_documents_from_payload,
     count_words,
+    sample_corpus_by_id,
     summarize_corpus,
 )
 from portakal_app.ui.screens.corpus_viewer_screen import CorpusViewerScreen
 from portakal_app.ui.screens.create_corpus_screen import (
+    BULK_SPLIT_BLANK_LINE,
+    BULK_SPLIT_DASHES,
     CreateCorpusScreen,
     make_document,
     preview_text,
+    split_bulk_documents,
 )
 from portakal_app.ui.screens.document_map_screen import DocumentMapScreen, build_document_map
 from portakal_app.ui.screens.extract_keywords_screen import ExtractKeywordsScreen, extract_keywords
@@ -51,6 +68,11 @@ from portakal_app.ui.screens.guardian_screen import (
     summarize_documents as summarize_guardian_documents,
 )
 from portakal_app.ui.screens.import_documents_screen import (
+    CSVColumnMapping,
+    DocumentImportOptions,
+    DUPLICATE_ALLOW,
+    DUPLICATE_REPLACE,
+    DUPLICATE_SKIP,
     ImportDocumentsScreen,
     import_documents_from_paths,
     is_supported_document_path,
@@ -69,9 +91,17 @@ from portakal_app.ui.screens.placeholder_screen import PlaceholderScreen
 from portakal_app.ui.screens.preprocess_text_screen import (
     PreprocessOptions,
     PreprocessTextScreen,
+    TOKENIZER_REGEX,
+    TOKENIZER_TWEET,
+    TOKENIZER_WHITESPACE,
+    build_ngrams,
+    filter_tokens,
+    parse_custom_stopwords,
     preprocess_documents,
     preprocess_text,
+    preprocess_tokens,
     summarize_preprocessing,
+    tokenize_text,
 )
 from portakal_app.ui.screens.pubmed_screen import (
     PubMedDocument,
@@ -119,11 +149,6 @@ PERSON_A_TEXT_MINING_WIDGETS = [
     ("text-corpus-viewer", "Corpus Viewer", ("Corpus",), ("Corpus",)),
     ("text-import-documents", "Import Documents", (), ("Corpus",)),
     ("text-create-corpus", "Create Corpus", (), ("Corpus",)),
-    ("text-the-guardian", "The Guardian", (), ("Corpus",)),
-    ("text-ny-times", "NY Times", (), ("Corpus",)),
-    ("text-pubmed", "PubMed", (), ("Corpus",)),
-    ("text-twitter", "Twitter", (), ("Corpus",)),
-    ("text-wikipedia", "Wikipedia", (), ("Corpus",)),
     ("text-preprocess", "Preprocess Text", ("Corpus",), ("Corpus",)),
     ("text-bag-of-words", "Bag of Words", ("Corpus",), ("Data",)),
     ("text-statistics", "Statistics", ("Corpus",), ()),
@@ -140,11 +165,6 @@ PERSON_A_TEXT_MINING_ICON_NAMES = {
     "text-corpus-viewer": "text_corpus",
     "text-import-documents": "text_import_documents",
     "text-create-corpus": "text_create_corpus",
-    "text-the-guardian": "text_the_guardian",
-    "text-ny-times": "text_ny_times",
-    "text-pubmed": "text_pubmed",
-    "text-twitter": "text_twitter",
-    "text-wikipedia": "text_wikipedia",
     "text-preprocess": "text_preprocess",
     "text-bag-of-words": "text_bag_of_words",
     "text-statistics": "stats",
@@ -154,6 +174,14 @@ PERSON_A_TEXT_MINING_ICON_NAMES = {
     "text-sentiment-analysis": "stats",
     "text-topic-modelling": "text_mining",
     "text-document-map": "mds",
+}
+
+REMOVED_PERSON_A_SOURCE_WIDGET_IDS = {
+    "text-the-guardian",
+    "text-ny-times",
+    "text-pubmed",
+    "text-twitter",
+    "text-wikipedia",
 }
 
 TEXT_MINING_ASSET_DIR = Path(__file__).resolve().parents[1] / "src" / "portakal_app" / "ui" / "assets"
@@ -492,104 +520,10 @@ def test_main_window_can_open_document_map_widget(app):
     assert isinstance(window._workspace.current_widget(), DocumentMapScreen)
 
 
-def test_text_mining_wikipedia_widget_uses_real_screen(app):
+def test_removed_person_a_source_widgets_are_not_registered():
     widgets = {widget.id: widget for widget in build_widgets()}
 
-    screen = widgets["text-wikipedia"].screen_factory()
-
-    assert isinstance(screen, WikipediaScreen)
-    assert not isinstance(screen, PlaceholderScreen)
-    assert widgets["text-wikipedia"].icon_name == "text_wikipedia"
-    assert screen._table.rowCount() > 0
-
-
-def test_main_window_can_open_wikipedia_widget(app):
-    window = MainWindow()
-
-    window._workspace.canvas.add_workflow_node("text-wikipedia")
-    window._show_widget("text-wikipedia")
-
-    assert isinstance(window._workspace.current_widget(), WikipediaScreen)
-
-
-def test_text_mining_pubmed_widget_uses_real_screen(app):
-    widgets = {widget.id: widget for widget in build_widgets()}
-
-    screen = widgets["text-pubmed"].screen_factory()
-
-    assert isinstance(screen, PubMedScreen)
-    assert not isinstance(screen, PlaceholderScreen)
-    assert widgets["text-pubmed"].icon_name == "text_pubmed"
-    assert screen._table.rowCount() > 0
-
-
-def test_main_window_can_open_pubmed_widget(app):
-    window = MainWindow()
-
-    window._workspace.canvas.add_workflow_node("text-pubmed")
-    window._show_widget("text-pubmed")
-
-    assert isinstance(window._workspace.current_widget(), PubMedScreen)
-
-
-def test_text_mining_guardian_widget_uses_real_screen(app):
-    widgets = {widget.id: widget for widget in build_widgets()}
-
-    screen = widgets["text-the-guardian"].screen_factory()
-
-    assert isinstance(screen, GuardianScreen)
-    assert not isinstance(screen, PlaceholderScreen)
-    assert widgets["text-the-guardian"].icon_name == "text_the_guardian"
-    assert screen._table.rowCount() > 0
-
-
-def test_main_window_can_open_guardian_widget(app):
-    window = MainWindow()
-
-    window._workspace.canvas.add_workflow_node("text-the-guardian")
-    window._show_widget("text-the-guardian")
-
-    assert isinstance(window._workspace.current_widget(), GuardianScreen)
-
-
-def test_text_mining_ny_times_widget_uses_real_screen(app):
-    widgets = {widget.id: widget for widget in build_widgets()}
-
-    screen = widgets["text-ny-times"].screen_factory()
-
-    assert isinstance(screen, NYTimesScreen)
-    assert not isinstance(screen, PlaceholderScreen)
-    assert widgets["text-ny-times"].icon_name == "text_ny_times"
-    assert screen._table.rowCount() > 0
-
-
-def test_main_window_can_open_ny_times_widget(app):
-    window = MainWindow()
-
-    window._workspace.canvas.add_workflow_node("text-ny-times")
-    window._show_widget("text-ny-times")
-
-    assert isinstance(window._workspace.current_widget(), NYTimesScreen)
-
-
-def test_text_mining_twitter_widget_uses_real_screen(app):
-    widgets = {widget.id: widget for widget in build_widgets()}
-
-    screen = widgets["text-twitter"].screen_factory()
-
-    assert isinstance(screen, TwitterScreen)
-    assert not isinstance(screen, PlaceholderScreen)
-    assert widgets["text-twitter"].icon_name == "text_twitter"
-    assert screen._table.rowCount() > 0
-
-
-def test_main_window_can_open_twitter_widget(app):
-    window = MainWindow()
-
-    window._workspace.canvas.add_workflow_node("text-twitter")
-    window._show_widget("text-twitter")
-
-    assert isinstance(window._workspace.current_widget(), TwitterScreen)
+    assert REMOVED_PERSON_A_SOURCE_WIDGET_IDS.isdisjoint(widgets)
 
 
 def test_text_source_widgets_expose_corpus_output_payloads(app):
@@ -651,6 +585,54 @@ def test_corpus_summary_counts_documents_and_words():
     assert summary.document_count == 2
     assert summary.total_word_count == 5
     assert summary.average_words_per_document == 2.5
+
+
+def test_corpus_screen_exposes_multiple_built_in_sample_corpora(app):
+    screen = CorpusScreen()
+    sample_ids = [sample.id for sample in SAMPLE_CORPORA]
+
+    assert len(SAMPLE_CORPORA) >= 3
+    assert len(sample_ids) == len(set(sample_ids))
+    assert screen._sample_combo.count() == len(SAMPLE_CORPORA)
+    assert screen._sample_combo.currentData() == SAMPLE_CORPORA[0].id
+    assert screen.current_output_payload().value == SAMPLE_CORPUS
+    assert SAMPLE_CORPORA[0].documents == SAMPLE_CORPUS
+    assert "Built-in sample corpus" in screen._status_label.text()
+
+
+def test_corpus_screen_sample_selection_updates_visible_documents(app):
+    screen = CorpusScreen()
+    target_sample = sample_corpus_by_id("product-reviews")
+
+    screen._sample_combo.setCurrentIndex(screen._sample_index(target_sample.id))
+
+    assert screen._table.rowCount() == len(target_sample.documents)
+    assert screen._table.item(0, 0).text() == target_sample.documents[0].title
+    assert screen._table.item(0, 1).text() == target_sample.documents[0].source
+    assert screen.current_output_payload().value == target_sample.documents
+    assert target_sample.description in screen._sample_description_label.text()
+
+
+def test_corpus_screen_input_overrides_sample_and_reset_restores_selected_sample(app):
+    screen = CorpusScreen()
+    target_sample = sample_corpus_by_id("support-tickets")
+    input_documents = (CorpusDocument("Incoming", "one two", "Input"),)
+
+    screen._sample_combo.setCurrentIndex(screen._sample_index(target_sample.id))
+    screen.set_input_payload(WorkflowPayload("Corpus", input_documents))
+
+    assert screen._sample_combo.isEnabled() is False
+    assert screen._table.rowCount() == 1
+    assert screen._table.item(0, 0).text() == "Incoming"
+    assert screen.current_output_payload().value == input_documents
+
+    screen.set_input_payload(None)
+
+    assert screen._sample_combo.isEnabled() is True
+    assert screen._table.rowCount() == len(target_sample.documents)
+    assert screen._table.item(0, 0).text() == target_sample.documents[0].title
+    assert screen.current_output_payload().value == target_sample.documents
+    assert target_sample.name in screen._status_label.text()
 
 
 def test_empty_corpus_summary_and_screen_are_safe(app):
@@ -905,6 +887,12 @@ def test_create_corpus_summary_counts_manual_documents():
     assert summary.average_words_per_document == 2.5
 
 
+def test_create_corpus_bulk_split_modes():
+    assert split_bulk_documents("one\n\ntwo", BULK_SPLIT_BLANK_LINE) == ("one", "two")
+    assert split_bulk_documents("one\n---\ntwo", BULK_SPLIT_DASHES) == ("one", "two")
+    assert split_bulk_documents("   ", BULK_SPLIT_BLANK_LINE) == ()
+
+
 def test_create_corpus_screen_adds_and_clears_documents(app):
     screen = CreateCorpusScreen()
 
@@ -922,6 +910,87 @@ def test_create_corpus_screen_adds_and_clears_documents(app):
 
     assert screen._table.rowCount() == 0
     assert screen.data_preview_snapshot()["rows"] == []
+
+
+def test_create_corpus_screen_selects_and_updates_existing_document(app):
+    screen = CreateCorpusScreen()
+    screen.add_document("Original", "one two", "Draft")
+
+    screen._table.selectRow(0)
+    app.processEvents()
+    updated = screen.update_selected_document("Updated", "three four five", "Final")
+
+    assert updated == CorpusDocument("Updated", "three four five", "Final")
+    assert screen._table.rowCount() == 1
+    assert screen._table.item(0, 0).text() == "Updated"
+    assert screen._table.item(0, 1).text() == "Final"
+    assert screen._table.item(0, 3).text() == "3"
+    assert screen.current_output_payload().value == (updated,)
+
+
+def test_create_corpus_screen_removes_selected_document(app):
+    screen = CreateCorpusScreen()
+    first = screen.add_document("First", "one", "Manual")
+    second = screen.add_document("Second", "two", "Manual")
+
+    screen._table.selectRow(0)
+    app.processEvents()
+    removed = screen.remove_selected_document()
+
+    assert removed == first
+    assert screen.current_output_payload().value == (second,)
+    assert screen._table.rowCount() == 1
+    assert screen._table.item(0, 0).text() == "Second"
+
+
+def test_create_corpus_screen_moves_documents_up_and_down(app):
+    screen = CreateCorpusScreen()
+    first = screen.add_document("First", "one", "Manual")
+    second = screen.add_document("Second", "two", "Manual")
+    third = screen.add_document("Third", "three", "Manual")
+
+    screen._table.selectRow(2)
+    app.processEvents()
+    assert screen.move_selected_up() is True
+
+    assert screen.current_output_payload().value == (first, third, second)
+
+    screen._table.selectRow(1)
+    app.processEvents()
+    assert screen.move_selected_down() is True
+
+    assert screen.current_output_payload().value == (first, second, third)
+
+
+def test_create_corpus_screen_adds_bulk_documents_and_updates_metadata(app):
+    screen = CreateCorpusScreen()
+
+    added = screen.add_bulk_documents(
+        "First bulk document\n\nSecond bulk document",
+        source="Bulk",
+        mode=BULK_SPLIT_BLANK_LINE,
+    )
+
+    assert [document.title for document in added] == ["Document 1", "Document 2"]
+    assert [document.source for document in added] == ["Bulk", "Bulk"]
+    assert screen._table.rowCount() == 2
+    assert screen._document_count_label.text().endswith("2")
+    assert screen._category_count_label.text().endswith("1")
+    assert screen._empty_document_count_label.text().endswith("0")
+    assert "1 categories" in screen.data_preview_snapshot()["summary"]
+
+
+def test_create_corpus_screen_adds_bulk_documents_split_by_dashes(app):
+    screen = CreateCorpusScreen()
+
+    added = screen.add_bulk_documents(
+        "Alpha text\n---\nBeta text",
+        source="Dash",
+        mode=BULK_SPLIT_DASHES,
+    )
+
+    assert [document.text for document in added] == ["Alpha text", "Beta text"]
+    assert screen._table.rowCount() == 2
 
 
 def test_create_corpus_outputs_corpus_payload(app):
@@ -978,34 +1047,36 @@ def test_main_window_can_route_create_corpus_output_to_corpus_widget(app):
     assert target_runtime.output_payload.port_label == "Corpus"
 
 
-def test_main_window_can_merge_create_corpus_and_wikipedia_into_corpus_widget(app):
+def test_main_window_can_merge_create_corpus_and_import_documents_into_corpus_widget(app, tmp_path):
+    import_path = tmp_path / "merged-import.txt"
+    import_path.write_text("imported merge text", encoding="utf-8")
     window = MainWindow()
     create_record = window._workspace.canvas.add_workflow_node("text-create-corpus")
-    wikipedia_record = window._workspace.canvas.add_workflow_node("text-wikipedia")
+    import_record = window._workspace.canvas.add_workflow_node("text-import-documents")
     target_record = window._workspace.canvas.add_workflow_node("text-corpus")
     scene = window._workspace.canvas.workflow_scene
 
     assert scene.create_connection(create_record.node_id, target_record.node_id)
-    assert scene.create_connection(wikipedia_record.node_id, target_record.node_id)
+    assert scene.create_connection(import_record.node_id, target_record.node_id)
 
     create_runtime = window._node_runtimes[create_record.node_id]
-    wikipedia_runtime = window._node_runtimes[wikipedia_record.node_id]
+    import_runtime = window._node_runtimes[import_record.node_id]
     target_runtime = window._node_runtimes[target_record.node_id]
     create_document = create_runtime.screen.add_document(
         "Manual Workflow Doc",
         "alpha beta gamma",
         "Create Corpus",
     )
+    import_result = import_runtime.screen.import_paths((import_path,))
     app.processEvents()
 
-    wikipedia_documents = wikipedia_runtime.screen.current_output_payload().value
-    expected_documents = (create_document, *wikipedia_documents)
+    expected_documents = (create_document, *import_result.documents)
 
     assert isinstance(target_runtime.screen, CorpusScreen)
     assert target_runtime.screen.current_output_payload().value == expected_documents
     assert target_runtime.screen._table.rowCount() == len(expected_documents)
     assert target_runtime.screen._table.item(0, 0).text() == "Manual Workflow Doc"
-    assert target_runtime.screen._table.item(1, 0).text().startswith("Wikipedia Sample:")
+    assert target_runtime.screen._table.item(1, 0).text() == "merged-import.txt"
     assert "Merged 2 input corpora" in target_runtime.screen._status_label.text()
 
 
@@ -1113,30 +1184,32 @@ def test_all_text_source_outputs_override_corpus_sample(app, tmp_path):
         assert "Input corpus is connected" in corpus._status_label.text()
 
 
-def test_main_window_can_route_pubmed_output_to_corpus_and_preprocess_text(app):
+def test_main_window_can_route_import_documents_output_to_corpus_and_preprocess_text(app, tmp_path):
+    path = tmp_path / "preprocess-source.txt"
+    path.write_text("This NEEDS Cleaning.", encoding="utf-8")
     window = MainWindow()
-    pubmed_record = window._workspace.canvas.add_workflow_node("text-pubmed")
+    import_record = window._workspace.canvas.add_workflow_node("text-import-documents")
     corpus_record = window._workspace.canvas.add_workflow_node("text-corpus")
     preprocess_record = window._workspace.canvas.add_workflow_node("text-preprocess")
     scene = window._workspace.canvas.workflow_scene
 
-    assert scene.create_connection(pubmed_record.node_id, corpus_record.node_id)
-    assert scene.create_connection(pubmed_record.node_id, preprocess_record.node_id)
+    assert scene.create_connection(import_record.node_id, corpus_record.node_id)
+    assert scene.create_connection(import_record.node_id, preprocess_record.node_id)
 
-    pubmed_runtime = window._node_runtimes[pubmed_record.node_id]
+    import_runtime = window._node_runtimes[import_record.node_id]
     corpus_runtime = window._node_runtimes[corpus_record.node_id]
     preprocess_runtime = window._node_runtimes[preprocess_record.node_id]
-    pubmed_runtime.screen.fetch_articles()
+    import_runtime.screen.import_paths((path,))
     app.processEvents()
 
-    expected_count = len(fallback_pubmed_documents())
     assert isinstance(corpus_runtime.screen, CorpusScreen)
     assert isinstance(preprocess_runtime.screen, PreprocessTextScreen)
-    assert corpus_runtime.screen._table.rowCount() == expected_count
-    assert corpus_runtime.screen._table.item(0, 0).text().startswith("PubMed Sample:")
+    assert corpus_runtime.screen._table.rowCount() == 1
+    assert corpus_runtime.screen._table.item(0, 0).text() == "preprocess-source.txt"
     assert corpus_runtime.screen._table.item(0, 0).text() != SAMPLE_CORPUS[0].title
-    assert preprocess_runtime.screen._table.rowCount() == expected_count
-    assert preprocess_runtime.screen._table.item(0, 0).text().startswith("PubMed Sample:")
+    assert preprocess_runtime.screen._table.rowCount() == 1
+    assert preprocess_runtime.screen._table.item(0, 0).text() == "preprocess-source.txt"
+    assert preprocess_runtime.screen._table.item(0, 2).text() == "this needs cleaning"
 
 
 def test_corpus_output_can_update_connected_preprocess_text_widget(app):
@@ -1522,6 +1595,76 @@ def test_preprocess_text_combined_options_work_together():
     ) == "test"
 
 
+def test_preprocess_text_strips_html_urls_and_accents():
+    assert preprocess_text(
+        "<p>Café Visit</p> https://example.com",
+        lowercase=True,
+        remove_punctuation=True,
+        remove_stopwords=False,
+        strip_html_tags=True,
+        remove_urls_text=True,
+        remove_accents_text=True,
+    ) == "cafe visit"
+
+
+def test_preprocess_tokenizers_whitespace_regex_and_tweet_like_modes():
+    assert tokenize_text("hello, world", tokenizer=TOKENIZER_WHITESPACE) == ("hello,", "world")
+    assert tokenize_text("alpha 123 beta", tokenizer=TOKENIZER_REGEX, regex_pattern=r"[a-z]+") == (
+        "alpha",
+        "beta",
+    )
+    assert tokenize_text("@user loves #Data!", tokenizer=TOKENIZER_TWEET) == (
+        "@user",
+        "loves",
+        "#Data",
+        "!",
+    )
+
+
+def test_preprocess_filter_tokens_supports_custom_stopwords_lengths_and_numeric_rules():
+    tokens = ("a", "alpha", "beta2", "gamma", "custom")
+
+    filtered = filter_tokens(
+        tokens,
+        remove_stopword_tokens=True,
+        stopwords={"custom"},
+        min_token_length=2,
+        max_token_length=5,
+        keep_alpha_only=True,
+        remove_tokens_with_numbers=True,
+    )
+
+    assert filtered == ("alpha", "gamma")
+
+
+def test_preprocess_custom_stopwords_are_parsed_and_applied():
+    options = PreprocessOptions(
+        remove_stopwords=True,
+        custom_stopwords=parse_custom_stopwords("alpha, beta gamma"),
+    )
+
+    assert preprocess_tokens("alpha beta gamma delta", options) == ("delta",)
+
+
+def test_preprocess_ngrams_build_unigrams_and_bigrams():
+    assert build_ngrams(("data", "mining", "tool"), 1, 2) == (
+        "data",
+        "mining",
+        "tool",
+        "data_mining",
+        "mining_tool",
+    )
+    assert preprocess_text(
+        "Data mining tool",
+        ngram_min=2,
+        ngram_max=2,
+    ) == "data_mining mining_tool"
+
+
+def test_preprocess_text_handles_invalid_regex_safely():
+    assert tokenize_text("alpha beta", tokenizer=TOKENIZER_REGEX, regex_pattern="[") == ()
+
+
 def test_preprocess_text_empty_and_symbol_only_inputs_are_safe():
     assert preprocess_text("") == ""
     assert preprocess_text("!!!") == ""
@@ -1543,6 +1686,31 @@ def test_preprocess_documents_and_summary_count_removed_words():
     assert summary.total_original_words == 8
     assert summary.total_processed_words == 4
     assert summary.removed_word_count == 4
+    assert summary.total_processed_tokens == 4
+    assert summary.vocabulary_size == 4
+
+
+def test_preprocess_screen_uses_lightweight_pipeline_options(app):
+    screen = PreprocessTextScreen(
+        documents=(CorpusDocument("HTML", "<b>This café</b> links https://example.com", "Manual"),)
+    )
+    screen._strip_html_checkbox.setChecked(True)
+    screen._urls_checkbox.setChecked(True)
+    screen._accents_checkbox.setChecked(True)
+    screen._stopwords_checkbox.setChecked(True)
+    screen._ngram_min_spinbox.setValue(1)
+    screen._ngram_max_spinbox.setValue(2)
+
+    processed = screen.apply_preprocessing()
+
+    assert processed == (
+        CorpusDocument("HTML", "cafe links cafe_links", "Manual"),
+    )
+    assert screen._table.item(0, 2).text() == "cafe links cafe_links"
+    assert screen._table.item(0, 3).text() == "cafe, links, cafe_links"
+    assert screen._processed_tokens_label.text().endswith("3")
+    assert screen._vocabulary_label.text().endswith("3")
+    assert "n-grams=1-2" in screen._status_label.text()
 
 
 def test_empty_preprocessing_summary_is_safe():
@@ -1607,6 +1775,69 @@ def test_bag_of_words_binary_counts_option_works():
     assert matrix == ((1, 1, 0), (0, 1, 1))
 
 
+def test_bag_of_words_sublinear_weighting_works():
+    weighted = apply_local_weighting((4, 1, 0), TF_SUBLINEAR)
+
+    assert weighted[0] == pytest.approx(1.0 + 1.386294, rel=1e-5)
+    assert weighted[1] == 1.0
+    assert weighted[2] == 0.0
+
+
+def test_bag_of_words_idf_and_smooth_idf_weighting_work():
+    matrix = ((2.0, 1.0, 0.0), (0.0, 1.0, 1.0))
+
+    idf = apply_global_weighting(matrix, DF_IDF)
+    smooth = apply_global_weighting(matrix, DF_SMOOTH_IDF)
+
+    assert idf[0][0] == pytest.approx(2.0 * 0.693147, rel=1e-5)
+    assert idf[0][1] == pytest.approx(0.0)
+    assert idf[1][2] == pytest.approx(0.693147, rel=1e-5)
+    assert smooth[0][1] == pytest.approx(1.0 * 0.693147, rel=1e-5)
+
+
+def test_bag_of_words_l1_and_l2_normalization_work():
+    matrix = ((3.0, 4.0), (0.0, 0.0))
+
+    l1 = normalize_matrix(matrix, NORM_L1)
+    l2 = normalize_matrix(matrix, NORM_L2)
+
+    assert l1[0] == pytest.approx((3 / 7, 4 / 7))
+    assert l1[1] == (0.0, 0.0)
+    assert l2[0] == pytest.approx((0.6, 0.8))
+    assert l2[1] == (0.0, 0.0)
+
+
+def test_bag_of_words_weighted_document_term_matrix_combines_options():
+    documents = (
+        CorpusDocument("First", "apple apple banana"),
+        CorpusDocument("Second", "banana carrot"),
+    )
+    vocabulary = ("apple", "banana", "carrot")
+
+    matrix = build_weighted_document_term_matrix(
+        documents,
+        vocabulary,
+        local_weighting=TF_SUBLINEAR,
+        global_weighting=DF_SMOOTH_IDF,
+        normalization=NORM_L1,
+    )
+
+    assert len(matrix) == 2
+    assert sum(matrix[0]) == pytest.approx(1.0)
+    assert sum(matrix[1]) == pytest.approx(1.0)
+    assert matrix[0][0] > matrix[0][1]
+
+
+def test_bag_of_words_document_frequencies_and_formatting_work():
+    matrix = ((2.0, 1.0, 0.0), (0.0, 1.0, 1.0))
+    vocabulary = ("apple", "banana", "carrot")
+
+    assert document_frequencies(matrix, vocabulary) == {"apple": 1, "banana": 2, "carrot": 1}
+    assert format_matrix_value(1.0) == "1"
+    assert format_matrix_value(0.333333) == "0.333"
+    assert weighting_summary(TF_SUBLINEAR, DF_IDF, NORM_L2) == "TF=Sublinear, DF=IDF, Norm=L2"
+
+
 def test_bag_of_words_term_frequency_summary_works():
     matrix = ((2, 1, 0), (1, 1, 1))
     vocabulary = ("apple", "banana", "carrot")
@@ -1659,6 +1890,8 @@ def test_bag_of_words_metadata_returns_expected_values():
     assert summary.vocabulary_size == 3
     assert summary.total_token_count == 6
     assert summary.most_frequent_term == "apple"
+    assert summary.nonzero_entries == 5
+    assert summary.density == pytest.approx(5 / 6)
 
 
 def test_bag_of_words_screen_renders_matrix_and_totals(app):
@@ -1672,6 +1905,25 @@ def test_bag_of_words_screen_renders_matrix_and_totals(app):
     assert screen._table.item(0, 0).text() == "First"
     assert screen._table.item(2, 0).text() == "Total Frequency"
     assert "3 terms" in screen.data_preview_snapshot()["summary"]
+
+
+def test_bag_of_words_screen_uses_orange_style_weighting_options(app):
+    documents = (
+        CorpusDocument("First", "apple apple banana"),
+        CorpusDocument("Second", "banana carrot"),
+    )
+    screen = BagOfWordsScreen(documents=documents)
+    screen._term_frequency_combo.setCurrentIndex(2)
+    screen._document_frequency_combo.setCurrentIndex(2)
+    screen._normalization_combo.setCurrentIndex(1)
+
+    matrix = screen.apply_options()
+
+    assert len(matrix) == 2
+    assert sum(matrix[0]) == pytest.approx(1.0)
+    assert "TF=Sublinear, DF=Smooth IDF, Norm=L1" in screen._status_label.text()
+    assert screen._density_label.text().endswith("66.7%")
+    assert "." in screen._table.item(0, 1).text()
 
 
 def test_wikipedia_url_builders_use_query_language_and_title():
@@ -2475,3 +2727,155 @@ def test_import_documents_csv_file_creates_documents_from_rows(tmp_path):
         "rows.csv row 3",
     ]
     assert result.documents[1].text == "First hello world"
+
+
+def test_import_documents_folder_imports_recursively_and_uses_subfolder_categories(tmp_path):
+    root = tmp_path / "documents"
+    sports = root / "sports"
+    politics = root / "politics"
+    sports.mkdir(parents=True)
+    politics.mkdir(parents=True)
+    (sports / "match.txt").write_text("team wins final", encoding="utf-8")
+    (politics / "vote.md").write_text("election result update", encoding="utf-8")
+    (root / "ignore.pdf").write_text("not imported", encoding="utf-8")
+
+    result = import_documents_from_paths((root,))
+
+    assert [document.title for document in result.documents] == ["vote.md", "match.txt"]
+    assert [document.source for document in result.documents] == ["politics", "sports"]
+    assert len(result.skipped) == 1
+    assert result.skipped[0].extension == ".pdf"
+    assert "Unsupported file type" in result.errors[0]
+
+
+def test_import_documents_folder_import_can_disable_recursion(tmp_path):
+    root = tmp_path / "documents"
+    nested = root / "nested"
+    nested.mkdir(parents=True)
+    (root / "top.txt").write_text("top document", encoding="utf-8")
+    (nested / "deep.txt").write_text("deep document", encoding="utf-8")
+
+    result = import_documents_from_paths(
+        (root,),
+        options=DocumentImportOptions(recursive=False),
+    )
+
+    assert [document.title for document in result.documents] == ["top.txt"]
+
+
+def test_import_documents_csv_column_mapping_uses_selected_columns(tmp_path):
+    path = tmp_path / "mapped.csv"
+    path.write_text(
+        "title,category,text,date\n"
+        "Review One,positive,this app is useful,2026-01-01\n"
+        "Review Two,negative,the screen is confusing,2026-01-02\n",
+        encoding="utf-8",
+    )
+    options = DocumentImportOptions(
+        csv_mapping=CSVColumnMapping(
+            title_column="title",
+            text_column="text",
+            source_column="category",
+        )
+    )
+
+    result = import_documents_from_paths((path,), options=options)
+
+    assert result.errors == ()
+    assert [document.title for document in result.documents] == ["Review One", "Review Two"]
+    assert [document.source for document in result.documents] == ["positive", "negative"]
+    assert result.documents[0].text == "this app is useful"
+
+
+def test_import_documents_csv_column_mapping_accepts_numeric_columns(tmp_path):
+    path = tmp_path / "mapped.csv"
+    path.write_text("title,body,category\nFirst,hello world,news\n", encoding="utf-8")
+    options = DocumentImportOptions(
+        csv_mapping=CSVColumnMapping(title_column="1", text_column="2", source_column="3")
+    )
+
+    result = import_documents_from_paths((path,), options=options)
+
+    assert result.documents == (CorpusDocument("First", "hello world", "news"),)
+
+
+def test_import_documents_screen_shows_skipped_documents_table(app, tmp_path):
+    path = tmp_path / "report.pdf"
+    path.write_text("not supported", encoding="utf-8")
+    screen = ImportDocumentsScreen()
+
+    result = screen.import_paths((path,))
+
+    assert result.documents == ()
+    assert screen._skipped_table.rowCount() == 1
+    assert screen._skipped_table.item(0, 1).text() == ".pdf"
+    assert "Unsupported file type" in screen._skipped_table.item(0, 2).text()
+    assert "1 skipped" in screen._summary_label.text()
+
+
+def test_import_documents_screen_preview_remove_clear_and_reload(app, tmp_path):
+    first = tmp_path / "first.txt"
+    second = tmp_path / "second.txt"
+    first.write_text("first preview text", encoding="utf-8")
+    second.write_text("second preview text", encoding="utf-8")
+    screen = ImportDocumentsScreen()
+
+    screen.import_paths((first, second))
+    screen._table.selectRow(0)
+    app.processEvents()
+
+    assert "first preview text" in screen._preview_label.text()
+    removed = screen.remove_selected_document()
+    assert removed is not None
+    assert removed.title == "first.txt"
+    assert screen._table.rowCount() == 1
+
+    screen.clear_imported_documents()
+    assert screen._table.rowCount() == 0
+    assert screen.current_output_payload().value == ()
+
+    reloaded = screen.reload_last_import()
+    assert reloaded is not None
+    assert screen._table.rowCount() == 2
+    assert [document.title for document in screen.current_output_payload().value] == [
+        "first.txt",
+        "second.txt",
+    ]
+
+
+def test_import_documents_encoding_selector_reads_cp1254_text(tmp_path):
+    path = tmp_path / "turkish.txt"
+    path.write_bytes("ğüşi".encode("cp1254"))
+    options = DocumentImportOptions(encoding="cp1254")
+
+    result = import_documents_from_paths((path,), options=options)
+
+    assert result.errors == ()
+    assert result.documents[0].text == "ğüşi"
+
+
+def test_import_documents_duplicate_policy_skip_replace_and_allow(tmp_path):
+    path = tmp_path / "duplicate.txt"
+    path.write_text("first version", encoding="utf-8")
+    existing = (CorpusDocument("duplicate.txt", "old version", str(path)),)
+
+    skipped = import_documents_from_paths(
+        (path,),
+        options=DocumentImportOptions(append_to_existing=True, duplicate_policy=DUPLICATE_SKIP),
+        existing_documents=existing,
+    )
+    replaced = import_documents_from_paths(
+        (path,),
+        options=DocumentImportOptions(append_to_existing=True, duplicate_policy=DUPLICATE_REPLACE),
+        existing_documents=existing,
+    )
+    allowed = import_documents_from_paths(
+        (path,),
+        options=DocumentImportOptions(append_to_existing=True, duplicate_policy=DUPLICATE_ALLOW),
+        existing_documents=existing,
+    )
+
+    assert skipped.documents == existing
+    assert "Duplicate document" in skipped.errors[0]
+    assert replaced.documents == (CorpusDocument("duplicate.txt", "first version", str(path)),)
+    assert allowed.documents == (*existing, CorpusDocument("duplicate.txt", "first version", str(path)))

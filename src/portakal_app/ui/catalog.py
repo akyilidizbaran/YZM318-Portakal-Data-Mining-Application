@@ -15,12 +15,10 @@ from portakal_app.ui.screens.document_map_screen import DocumentMapScreen
 from portakal_app.ui.screens.edit_domain_screen import EditDomainScreen
 from portakal_app.ui.screens.extract_keywords_screen import ExtractKeywordsScreen
 from portakal_app.ui.screens.file_screen import FileScreen
-from portakal_app.ui.screens.guardian_screen import GuardianScreen
 from portakal_app.ui.screens.import_documents_screen import ImportDocumentsScreen
 from portakal_app.ui.screens.paint_data_screen import PaintDataScreen
 from portakal_app.ui.screens.placeholder_screen import PlaceholderScreen
 from portakal_app.ui.screens.preprocess_text_screen import PreprocessTextScreen
-from portakal_app.ui.screens.pubmed_screen import PubMedScreen
 from portakal_app.ui.screens.rank_screen import RankScreen
 from portakal_app.ui.screens.save_data_screen import SaveDataScreen
 
@@ -70,7 +68,6 @@ from portakal_app.ui.screens.sieve_diagram_screen import SieveDiagramScreen
 from portakal_app.ui.screens.mosaic_display_screen import MosaicDisplayScreen
 from portakal_app.ui.screens.freeviz_screen import FreeVizScreen
 from portakal_app.ui.screens.linear_projection_screen import LinearProjectionScreen
-from portakal_app.ui.screens.ny_times_screen import NYTimesScreen
 from portakal_app.ui.screens.radviz_screen import RadvizScreen
 from portakal_app.ui.screens.heat_map_screen import HeatMapScreen
 from portakal_app.ui.screens.line_plot_screen import LinePlotScreen
@@ -84,7 +81,6 @@ from portakal_app.ui.screens.pythagorean_tree_screen import PythagoreanTreeScree
 from portakal_app.ui.screens.cn2_rule_viewer_screen import CN2RuleViewerScreen
 from portakal_app.ui.screens.nomogram_screen import NomogramScreen
 from portakal_app.ui.screens.scoring_sheet_viewer_screen import ScoringSheetViewerScreen
-from portakal_app.ui.screens.wikipedia_screen import WikipediaScreen
 
 from portakal_app.ui.screens.constant_screen import ConstantScreen
 from portakal_app.ui.screens.naive_bayes_screen import NaiveBayesScreen
@@ -108,7 +104,6 @@ from portakal_app.ui.screens.save_model_screen import SaveModelScreen
 from portakal_app.ui.screens.load_model_screen import LoadModelScreen
 from portakal_app.ui.screens.confusion_matrix_screen import ConfusionMatrixScreen
 from portakal_app.ui.screens.test_and_score_screen import TestAndScoreScreen
-from portakal_app.ui.screens.twitter_screen import TwitterScreen
 from portakal_app.ui.screens.text_statistics_screen import TextStatisticsScreen
 from portakal_app.ui.screens.topic_modelling_screen import TopicModellingScreen
 from portakal_app.ui.screens.word_cloud_screen import WordCloudScreen
@@ -1235,7 +1230,7 @@ def build_widgets() -> list[WidgetDefinition]:
             i18n.t("Import Documents"),
             True,
             ImportDocumentsScreen,
-            i18n.t("Import local text documents into a corpus."),
+            i18n.t("Import local text files and folders into a corpus."),
             "text_import_documents",
             (),
             _outputs("Corpus"),
@@ -1248,61 +1243,6 @@ def build_widgets() -> list[WidgetDefinition]:
             CreateCorpusScreen,
             i18n.t("Create a small text corpus manually."),
             "text_create_corpus",
-            (),
-            _outputs("Corpus"),
-        ),
-        WidgetDefinition(
-            "text-the-guardian",
-            "text-mining",
-            i18n.t("The Guardian"),
-            True,
-            GuardianScreen,
-            i18n.t("Fetch Guardian articles into a corpus."),
-            "text_the_guardian",
-            (),
-            _outputs("Corpus"),
-        ),
-        WidgetDefinition(
-            "text-ny-times",
-            "text-mining",
-            i18n.t("NY Times"),
-            True,
-            NYTimesScreen,
-            i18n.t("Fetch NY Times articles into a corpus."),
-            "text_ny_times",
-            (),
-            _outputs("Corpus"),
-        ),
-        WidgetDefinition(
-            "text-pubmed",
-            "text-mining",
-            i18n.t("PubMed"),
-            True,
-            PubMedScreen,
-            i18n.t("Fetch PubMed abstracts into a corpus."),
-            "text_pubmed",
-            (),
-            _outputs("Corpus"),
-        ),
-        WidgetDefinition(
-            "text-twitter",
-            "text-mining",
-            i18n.t("Twitter"),
-            True,
-            TwitterScreen,
-            i18n.t("Fetch social posts into a corpus."),
-            "text_twitter",
-            (),
-            _outputs("Corpus"),
-        ),
-        WidgetDefinition(
-            "text-wikipedia",
-            "text-mining",
-            i18n.t("Wikipedia"),
-            True,
-            WikipediaScreen,
-            i18n.t("Fetch Wikipedia article summaries into a corpus."),
-            "text_wikipedia",
             (),
             _outputs("Corpus"),
         ),
