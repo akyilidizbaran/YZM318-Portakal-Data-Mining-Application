@@ -46,7 +46,11 @@ from portakal_app.ui.screens.corpus_screen import (
     sample_corpus_by_id,
     summarize_corpus,
 )
-from portakal_app.ui.screens.corpus_viewer_screen import CorpusViewerScreen
+from portakal_app.ui.screens.corpus_viewer_screen import (
+    CorpusViewerScreen,
+    corpus_viewer_unique_word_count,
+    filter_corpus_viewer_documents,
+)
 from portakal_app.ui.screens.create_corpus_screen import (
     BULK_SPLIT_BLANK_LINE,
     BULK_SPLIT_DASHES,
@@ -723,6 +727,62 @@ def test_corpus_viewer_accepts_input_and_passes_same_corpus(app):
     assert screen._table.item(0, 0).text() == "First"
     assert screen._table.item(0, 3).text() == "2"
     assert screen.current_output_payload().port_label == "Corpus"
+    assert screen.current_output_payload().value == documents
+
+
+def test_corpus_viewer_filter_finds_matching_documents_and_counts_matches(app):
+    documents = (
+        CorpusDocument("Market Report", "profit market growth", "News"),
+        CorpusDocument("Weather", "rain tomorrow", "Forecast"),
+        CorpusDocument("Profit Note", "profit rose again", "Notes"),
+    )
+    screen = CorpusViewerScreen()
+
+    result = filter_corpus_viewer_documents(documents, "profit|market")
+    screen.set_input_payload(WorkflowPayload("Corpus", documents))
+    screen._filter_input.setText("profit|market")
+    app.processEvents()
+
+    assert result.row_indexes == (0, 2)
+    assert result.matching_documents == 2
+    assert result.matches == 5
+    assert corpus_viewer_unique_word_count(documents) == 7
+    assert screen._table.rowCount() == 2
+    assert screen._table.item(0, 0).text() == "Market Report"
+    assert screen._matching_documents_label.text().endswith("2 / 3")
+    assert screen._matches_label.text().endswith("5")
+    assert "ffe58a" in screen._detail_content.toHtml()
+    assert screen.current_output_payload().value == documents
+
+
+def test_corpus_viewer_filter_respects_search_scope(app):
+    documents = (
+        CorpusDocument("Profit Title", "plain body", "Manual"),
+        CorpusDocument("Body", "profit in content", "Manual"),
+    )
+    screen = CorpusViewerScreen()
+
+    screen.set_input_payload(WorkflowPayload("Corpus", documents))
+    screen._search_title_checkbox.setChecked(False)
+    screen._search_source_checkbox.setChecked(False)
+    screen._search_content_checkbox.setChecked(True)
+    screen._filter_input.setText("profit")
+    app.processEvents()
+
+    assert screen._table.rowCount() == 1
+    assert screen._table.item(0, 0).text() == "Body"
+
+
+def test_corpus_viewer_invalid_regex_is_safe(app):
+    documents = (CorpusDocument("First", "profit market", "Manual"),)
+    screen = CorpusViewerScreen()
+
+    screen.set_input_payload(WorkflowPayload("Corpus", documents))
+    screen._filter_input.setText("[")
+    app.processEvents()
+
+    assert screen._table.rowCount() == 0
+    assert "Invalid regular expression" in screen._status_label.text()
     assert screen.current_output_payload().value == documents
 
 
