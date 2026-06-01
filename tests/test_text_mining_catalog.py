@@ -1690,6 +1690,26 @@ def test_preprocess_documents_and_summary_count_removed_words():
     assert summary.vocabulary_size == 4
 
 
+def test_preprocess_summary_uses_consistent_token_counts_without_transforms():
+    documents = (
+        CorpusDocument("Punctuation", "hello, world! data-mining", "Manual"),
+    )
+    options = PreprocessOptions(
+        lowercase=False,
+        remove_punctuation=False,
+        remove_numbers=False,
+        remove_extra_whitespace=False,
+    )
+
+    processed = preprocess_documents(documents, options)
+    summary = summarize_preprocessing(documents, processed, options)
+
+    assert processed == (CorpusDocument("Punctuation", "hello world data mining", "Manual"),)
+    assert summary.total_original_tokens == 4
+    assert summary.total_processed_tokens == 4
+    assert summary.removed_token_count == 0
+
+
 def test_preprocess_screen_uses_lightweight_pipeline_options(app):
     screen = PreprocessTextScreen(
         documents=(CorpusDocument("HTML", "<b>This café</b> links https://example.com", "Manual"),)

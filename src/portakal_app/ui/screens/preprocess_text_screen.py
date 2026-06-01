@@ -197,11 +197,7 @@ def tokenize_text(
             for match in re.finditer(r"[@#]?\w+(?:['-]\w+)*|https?://\S+|[^\w\s]", text, flags=re.UNICODE)
             if match.group(0).strip()
         )
-    return tuple(
-        match.group(0)
-        for match in re.finditer(r"\w+|[^\w\s]", text, flags=re.UNICODE)
-        if match.group(0).strip()
-    )
+    return tuple(match.group(0) for match in re.finditer(r"\b\w+\b", text, flags=re.UNICODE))
 
 
 def filter_tokens(
@@ -353,7 +349,16 @@ def summarize_preprocessing(
     document_count = len(original_documents)
     total_original_words = sum(count_words(document.text) for document in original_documents)
     total_processed_words = sum(count_words(document.text) for document in processed_documents)
-    original_tokens = sum(len(tokenize_text(document.text, tokenizer=TOKENIZER_WHITESPACE)) for document in original_documents)
+    original_tokens = sum(
+        len(
+            tokenize_text(
+                document.text,
+                tokenizer=options.tokenizer,
+                regex_pattern=options.regex_pattern,
+            )
+        )
+        for document in original_documents
+    )
     processed_token_sets = [document.text.split() for document in processed_documents]
     processed_tokens = sum(len(tokens) for tokens in processed_token_sets)
     vocabulary = {token for tokens in processed_token_sets for token in tokens}
@@ -697,9 +702,9 @@ class PreprocessTextScreen(QWidget, WorkflowNodeScreenSupport):
         layout.setSpacing(10)
 
         self._document_count_label = self._build_metric_label("Documents", "0")
-        self._original_words_label = self._build_metric_label("Original Words", "0")
-        self._processed_words_label = self._build_metric_label("Processed Words", "0")
-        self._removed_words_label = self._build_metric_label("Removed Words", "0")
+        self._original_words_label = self._build_metric_label("Original Tokens", "0")
+        self._processed_words_label = self._build_metric_label("Token Delta", "0")
+        self._removed_words_label = self._build_metric_label("Removed Tokens", "0")
         self._processed_tokens_label = self._build_metric_label("Processed Tokens", "0")
         self._vocabulary_label = self._build_metric_label("Vocabulary", "0")
 
@@ -741,7 +746,7 @@ class PreprocessTextScreen(QWidget, WorkflowNodeScreenSupport):
                 "Original Text",
                 "Preprocessed Text",
                 "Tokens",
-                "Original Words",
+                "Original Tokens",
                 "Processed Tokens",
                 "Removed Tokens",
             ]
@@ -815,10 +820,12 @@ class PreprocessTextScreen(QWidget, WorkflowNodeScreenSupport):
     def _render(self) -> None:
         options = self._current_options()
         summary = summarize_preprocessing(self._original_documents, self._processed_documents, options)
+        token_delta = summary.total_processed_tokens - summary.total_original_tokens
+        token_delta_text = f"+{token_delta}" if token_delta > 0 else str(token_delta)
         self._document_count_label.setText(f"Documents\n{summary.document_count}")
-        self._original_words_label.setText(f"Original Words\n{summary.total_original_words}")
-        self._processed_words_label.setText(f"Processed Words\n{summary.total_processed_words}")
-        self._removed_words_label.setText(f"Removed Words\n{summary.removed_word_count}")
+        self._original_words_label.setText(f"Original Tokens\n{summary.total_original_tokens}")
+        self._processed_words_label.setText(f"Token Delta\n{token_delta_text}")
+        self._removed_words_label.setText(f"Removed Tokens\n{summary.removed_token_count}")
         self._processed_tokens_label.setText(f"Processed Tokens\n{summary.total_processed_tokens}")
         self._vocabulary_label.setText(f"Vocabulary\n{summary.vocabulary_size}")
 
@@ -835,13 +842,17 @@ class PreprocessTextScreen(QWidget, WorkflowNodeScreenSupport):
         self._table.setRowCount(len(self._original_documents))
         document_pairs = zip(self._original_documents, self._processed_documents)
         for row, (original, processed) in enumerate(document_pairs):
-            original_tokens = tokenize_text(original.text, tokenizer=TOKENIZER_WHITESPACE)
+            original_tokens = tokenize_text(
+                original.text,
+                tokenizer=options.tokenizer,
+                regex_pattern=options.regex_pattern,
+            )
             processed_tokens = processed.text.split()
             self._set_item(row, 0, original.title)
             self._set_item(row, 1, preview_text(original.text))
             self._set_item(row, 2, preview_text(processed.text))
             self._set_item(row, 3, preview_text(", ".join(processed_tokens), max_length=180))
-            self._set_item(row, 4, str(count_words(original.text)))
+            self._set_item(row, 4, str(len(original_tokens)))
             self._set_item(row, 5, str(len(processed_tokens)))
             self._set_item(row, 6, str(max(0, len(original_tokens) - len(processed_tokens))))
         self._table.resizeColumnsToContents()
@@ -907,7 +918,7 @@ class PreprocessTextScreen(QWidget, WorkflowNodeScreenSupport):
         return {
             "summary": (
                 f"Preprocess Text: {summary.document_count} documents, "
-                f"{summary.total_original_words} original words, "
+                f"{summary.total_original_tokens} original tokens, "
                 f"{summary.total_processed_tokens} processed tokens, "
                 f"{summary.vocabulary_size} vocabulary"
             ),
@@ -916,7 +927,7 @@ class PreprocessTextScreen(QWidget, WorkflowNodeScreenSupport):
                 "Original Text",
                 "Preprocessed Text",
                 "Tokens",
-                "Original Words",
+                "Original Tokens",
                 "Processed Tokens",
             ],
             "rows": rows,
