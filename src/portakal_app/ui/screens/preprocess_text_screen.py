@@ -6,9 +6,11 @@ import string
 import unicodedata
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
+from pathlib import Path
 
 from PySide6.QtCore import QSize, Qt
 from PySide6.QtWidgets import (
+    QAbstractSpinBox,
     QCheckBox,
     QComboBox,
     QFrame,
@@ -57,6 +59,9 @@ TURKISH_STOPWORDS = frozenset(
     {"ve", "veya", "bir", "bu", "şu", "ile", "için", "de", "da", "mi", "mı"}
 )
 DEFAULT_STOPWORDS = ENGLISH_STOPWORDS | TURKISH_STOPWORDS
+_ASSETS_DIR = Path(__file__).resolve().parents[1] / "assets"
+_SPINBOX_UP_ARROW_PATH = (_ASSETS_DIR / "spinbox-up.svg").as_posix()
+_SPINBOX_DOWN_ARROW_PATH = (_ASSETS_DIR / "spinbox-down.svg").as_posix()
 
 TOKENIZER_WHITESPACE = "whitespace"
 TOKENIZER_WORDPUNCT = "wordpunct"
@@ -652,6 +657,7 @@ class PreprocessTextScreen(QWidget, WorkflowNodeScreenSupport):
         return line_edit
 
     def _style_spinbox(self, spinbox: QSpinBox) -> QSpinBox:
+        spinbox.setButtonSymbols(QAbstractSpinBox.ButtonSymbols.UpDownArrows)
         spinbox.setStyleSheet(
             """
             QSpinBox {
@@ -659,22 +665,39 @@ class PreprocessTextScreen(QWidget, WorkflowNodeScreenSupport):
                 color: #2b2b2b;
                 border: 1px solid #d1cabf;
                 border-radius: 8px;
-                padding: 6px 10px;
+                padding: 6px 26px 6px 10px;
                 min-height: 24px;
             }
             QSpinBox::up-button,
             QSpinBox::down-button {
                 background: #f3eadc;
-                border: none;
-                width: 18px;
+                border-left: 1px solid #d1cabf;
+                width: 22px;
             }
             QSpinBox::up-button {
+                subcontrol-origin: border;
+                subcontrol-position: top right;
+                border-bottom: 1px solid #d1cabf;
                 border-top-right-radius: 8px;
             }
             QSpinBox::down-button {
+                subcontrol-origin: border;
+                subcontrol-position: bottom right;
                 border-bottom-right-radius: 8px;
             }
-            """
+            QSpinBox::up-arrow {
+                image: url("__SPINBOX_UP_ARROW__");
+                width: 8px;
+                height: 8px;
+            }
+            QSpinBox::down-arrow {
+                image: url("__SPINBOX_DOWN_ARROW__");
+                width: 8px;
+                height: 8px;
+            }
+            """.replace("__SPINBOX_UP_ARROW__", _SPINBOX_UP_ARROW_PATH).replace(
+                "__SPINBOX_DOWN_ARROW__", _SPINBOX_DOWN_ARROW_PATH
+            )
         )
         spinbox.lineEdit().setStyleSheet("background: #fffdf9; color: #2b2b2b;")
         return spinbox
