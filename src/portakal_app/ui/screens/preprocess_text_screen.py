@@ -7,12 +7,13 @@ import unicodedata
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
 
-from PySide6.QtCore import QSize
+from PySide6.QtCore import QSize, Qt
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
     QFrame,
     QGridLayout,
+    QHeaderView,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -32,8 +33,6 @@ from portakal_app.ui.screens.corpus_screen import (
 )
 from portakal_app.ui.screens.create_corpus_screen import preview_text
 from portakal_app.ui.screens.node_screen import WorkflowNodeScreenSupport
-from portakal_app.ui.shared.cards import SectionHeader
-
 
 ENGLISH_STOPWORDS = frozenset(
     {
@@ -385,15 +384,10 @@ class PreprocessTextScreen(QWidget, WorkflowNodeScreenSupport):
         self._processed_documents: tuple[CorpusDocument, ...] = ()
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(8, 8, 8, 8)
-        layout.setSpacing(10)
+        layout.setContentsMargins(14, 14, 14, 14)
+        layout.setSpacing(12)
 
-        layout.addWidget(
-            SectionHeader(
-                "Preprocess Text",
-                "Build a lightweight Orange-inspired preprocessing pipeline for text documents.",
-            )
-        )
+        layout.addWidget(self._build_hero_panel())
         layout.addWidget(self._build_options_panel())
         layout.addWidget(self._build_metadata_panel())
         layout.addWidget(self._build_table_panel(), 1)
@@ -406,13 +400,107 @@ class PreprocessTextScreen(QWidget, WorkflowNodeScreenSupport):
     def minimumSizeHint(self) -> QSize:
         return QSize(820, 560)
 
+    def _build_hero_panel(self) -> QFrame:
+        frame = QFrame(self)
+        frame.setObjectName("preprocessHeroPanel")
+        frame.setStyleSheet(
+            """
+            QFrame#preprocessHeroPanel {
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+                    stop:0 #fff7e8, stop:0.58 #ffffff, stop:1 #f4efe6);
+                border: 1px solid #e1d3bd;
+                border-radius: 16px;
+            }
+            QLabel#preprocessHeroTitle {
+                background: transparent;
+                font-size: 22pt;
+                font-weight: 800;
+                color: #2c2419;
+            }
+            QLabel#preprocessHeroSubtitle {
+                background: transparent;
+                color: #6a6257;
+                font-size: 10.5pt;
+            }
+            QLabel#preprocessPipelineBadge {
+                background: #2e271e;
+                color: #fff7e8;
+                border-radius: 12px;
+                padding: 12px 16px;
+                font-weight: 700;
+            }
+            """
+        )
+        layout = QHBoxLayout(frame)
+        layout.setContentsMargins(20, 18, 20, 18)
+        layout.setSpacing(18)
+
+        copy_layout = QVBoxLayout()
+        copy_layout.setSpacing(6)
+        title = QLabel("Preprocess Text", self)
+        title.setObjectName("preprocessHeroTitle")
+        subtitle = QLabel(
+            "Clean, tokenize, filter, and compose n-grams before building text features.",
+            self,
+        )
+        subtitle.setObjectName("preprocessHeroSubtitle")
+        subtitle.setWordWrap(True)
+        copy_layout.addWidget(title)
+        copy_layout.addWidget(subtitle)
+        layout.addLayout(copy_layout, 2)
+
+        pipeline_badge = QLabel("Transform -> Tokenize -> Filter -> N-grams", self)
+        pipeline_badge.setObjectName("preprocessPipelineBadge")
+        pipeline_badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        pipeline_badge.setMinimumWidth(320)
+        layout.addWidget(pipeline_badge, 1)
+        return frame
+
     def _build_options_panel(self) -> QFrame:
         frame = QFrame(self)
-        frame.setProperty("panel", True)
+        frame.setObjectName("preprocessOptionsPanel")
+        frame.setStyleSheet(
+            """
+            QFrame#preprocessOptionsPanel {
+                background: transparent;
+                border: none;
+            }
+            QFrame#preprocessOptionCard {
+                background: #ffffff;
+                border: 1px solid #e0d8cd;
+                border-radius: 14px;
+            }
+            QLabel#preprocessCardTitle {
+                background: transparent;
+                font-size: 12pt;
+                font-weight: 800;
+                color: #30271d;
+            }
+            QLabel#preprocessCardSubtitle {
+                background: transparent;
+                color: #746b5f;
+            }
+            QLabel#preprocessFieldLabel {
+                background: transparent;
+                color: #3a3127;
+                font-weight: 700;
+            }
+            QFrame#preprocessOptionCard QCheckBox {
+                background: transparent;
+            }
+            QLabel#preprocessPipelineLabel {
+                background: #fff8eb;
+                border: 1px solid #ecd8b1;
+                border-radius: 10px;
+                color: #4a3924;
+                padding: 10px 12px;
+            }
+            """
+        )
         layout = QGridLayout(frame)
-        layout.setContentsMargins(12, 12, 12, 12)
-        layout.setHorizontalSpacing(14)
-        layout.setVerticalSpacing(8)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setHorizontalSpacing(12)
+        layout.setVerticalSpacing(12)
 
         self._lowercase_checkbox = QCheckBox("Lowercase", self)
         self._lowercase_checkbox.setChecked(True)
@@ -425,64 +513,129 @@ class PreprocessTextScreen(QWidget, WorkflowNodeScreenSupport):
         self._whitespace_checkbox = QCheckBox("Remove extra whitespace", self)
         self._whitespace_checkbox.setChecked(True)
 
-        layout.addWidget(QLabel("Transformation", self), 0, 0)
-        layout.addWidget(self._lowercase_checkbox, 0, 1)
-        layout.addWidget(self._strip_html_checkbox, 0, 2)
-        layout.addWidget(self._urls_checkbox, 0, 3)
-        layout.addWidget(self._accents_checkbox, 0, 4)
-        layout.addWidget(self._punctuation_checkbox, 1, 1)
-        layout.addWidget(self._numbers_checkbox, 1, 2)
-        layout.addWidget(self._whitespace_checkbox, 1, 3)
+        transform_card, transform_layout = self._build_option_card(
+            "Transform",
+            "Normalize raw documents before tokenization.",
+        )
+        transform_grid = QGridLayout()
+        transform_grid.setHorizontalSpacing(12)
+        transform_grid.setVerticalSpacing(8)
+        transform_grid.addWidget(self._lowercase_checkbox, 0, 0)
+        transform_grid.addWidget(self._strip_html_checkbox, 0, 1)
+        transform_grid.addWidget(self._urls_checkbox, 0, 2)
+        transform_grid.addWidget(self._accents_checkbox, 1, 0)
+        transform_grid.addWidget(self._punctuation_checkbox, 1, 1)
+        transform_grid.addWidget(self._numbers_checkbox, 1, 2)
+        transform_grid.addWidget(self._whitespace_checkbox, 2, 0, 1, 3)
+        transform_layout.addLayout(transform_grid)
+        layout.addWidget(transform_card, 0, 0)
 
-        layout.addWidget(QLabel("Tokenizer", self), 2, 0)
+        token_card, token_layout = self._build_option_card(
+            "Tokenize",
+            "Choose how text is split into candidate terms.",
+        )
+        token_grid = QGridLayout()
+        token_grid.setHorizontalSpacing(12)
+        token_grid.setVerticalSpacing(8)
+        token_grid.addWidget(self._build_field_label("Tokenizer"), 0, 0)
         self._tokenizer_combo = QComboBox(self)
         self._tokenizer_combo.addItem("Word punctuation", TOKENIZER_WORDPUNCT)
         self._tokenizer_combo.addItem("Whitespace", TOKENIZER_WHITESPACE)
         self._tokenizer_combo.addItem("Regex", TOKENIZER_REGEX)
         self._tokenizer_combo.addItem("Tweet-like", TOKENIZER_TWEET)
-        layout.addWidget(self._tokenizer_combo, 2, 1)
+        token_grid.addWidget(self._tokenizer_combo, 0, 1)
+        token_grid.addWidget(self._build_field_label("Regex pattern"), 1, 0)
         self._regex_input = self._build_line_input(r"\b\w+\b")
-        layout.addWidget(self._regex_input, 2, 2, 1, 2)
+        token_grid.addWidget(self._regex_input, 1, 1)
+        token_layout.addLayout(token_grid)
+        layout.addWidget(token_card, 0, 1)
 
-        layout.addWidget(QLabel("Filtering", self), 3, 0)
+        filter_card, filter_layout = self._build_option_card(
+            "Filter",
+            "Remove low-value tokens and keep the vocabulary focused.",
+        )
         self._stopwords_checkbox = QCheckBox("Remove stopwords", self)
         self._alpha_checkbox = QCheckBox("Keep alphabetic only", self)
         self._token_numbers_checkbox = QCheckBox("Remove tokens with numbers", self)
-        layout.addWidget(self._stopwords_checkbox, 3, 1)
-        layout.addWidget(self._alpha_checkbox, 3, 2)
-        layout.addWidget(self._token_numbers_checkbox, 3, 3)
-
-        layout.addWidget(QLabel("Custom stopwords", self), 4, 0)
+        filter_grid = QGridLayout()
+        filter_grid.setHorizontalSpacing(12)
+        filter_grid.setVerticalSpacing(8)
+        filter_grid.addWidget(self._stopwords_checkbox, 0, 0)
+        filter_grid.addWidget(self._alpha_checkbox, 0, 1)
+        filter_grid.addWidget(self._token_numbers_checkbox, 0, 2)
+        filter_grid.addWidget(self._build_field_label("Custom stopwords"), 1, 0)
         self._custom_stopwords_input = self._build_line_input("comma or space separated")
-        layout.addWidget(self._custom_stopwords_input, 4, 1, 1, 2)
-
-        layout.addWidget(QLabel("Min length", self), 4, 3)
-        self._min_length_spinbox = QSpinBox(self)
+        filter_grid.addWidget(self._custom_stopwords_input, 1, 1, 1, 2)
+        filter_grid.addWidget(self._build_field_label("Min length"), 2, 0)
+        self._min_length_spinbox = self._style_spinbox(QSpinBox(self))
         self._min_length_spinbox.setRange(1, 99)
         self._min_length_spinbox.setValue(1)
-        layout.addWidget(self._min_length_spinbox, 4, 4)
-
-        layout.addWidget(QLabel("Max length", self), 5, 3)
-        self._max_length_spinbox = QSpinBox(self)
+        filter_grid.addWidget(self._min_length_spinbox, 2, 1)
+        filter_grid.addWidget(self._build_field_label("Max length"), 2, 2)
+        self._max_length_spinbox = self._style_spinbox(QSpinBox(self))
         self._max_length_spinbox.setRange(0, 999)
         self._max_length_spinbox.setValue(0)
-        layout.addWidget(self._max_length_spinbox, 5, 4)
+        filter_grid.addWidget(self._max_length_spinbox, 2, 3)
+        filter_layout.addLayout(filter_grid)
+        layout.addWidget(filter_card, 1, 0)
 
-        layout.addWidget(QLabel("N-grams", self), 5, 0)
-        self._ngram_min_spinbox = QSpinBox(self)
+        output_card, output_layout = self._build_option_card(
+            "Output",
+            "Preview the fixed pipeline and apply the current configuration.",
+        )
+        output_grid = QGridLayout()
+        output_grid.setHorizontalSpacing(12)
+        output_grid.setVerticalSpacing(8)
+        output_grid.addWidget(self._build_field_label("N-gram min"), 0, 0)
+        self._ngram_min_spinbox = self._style_spinbox(QSpinBox(self))
         self._ngram_min_spinbox.setRange(1, 5)
         self._ngram_min_spinbox.setValue(1)
-        layout.addWidget(self._ngram_min_spinbox, 5, 1)
-        self._ngram_max_spinbox = QSpinBox(self)
+        output_grid.addWidget(self._ngram_min_spinbox, 0, 1)
+        output_grid.addWidget(self._build_field_label("N-gram max"), 0, 2)
+        self._ngram_max_spinbox = self._style_spinbox(QSpinBox(self))
         self._ngram_max_spinbox.setRange(1, 5)
         self._ngram_max_spinbox.setValue(1)
-        layout.addWidget(self._ngram_max_spinbox, 5, 2)
+        output_grid.addWidget(self._ngram_max_spinbox, 0, 3)
+        output_layout.addLayout(output_grid)
+
+        action_layout = QHBoxLayout()
+        action_layout.setSpacing(12)
+        self._pipeline_label = QLabel("", self)
+        self._pipeline_label.setObjectName("preprocessPipelineLabel")
+        self._pipeline_label.setWordWrap(True)
+        self._pipeline_label.setMinimumHeight(42)
+        action_layout.addWidget(self._pipeline_label, 1)
 
         self._apply_button = QPushButton("Apply Preprocessing", self)
         self._apply_button.setProperty("primary", True)
+        self._apply_button.setMinimumHeight(38)
+        self._apply_button.setMinimumWidth(180)
         self._apply_button.clicked.connect(self.apply_preprocessing)
-        layout.addWidget(self._apply_button, 6, 3, 1, 2)
+        action_layout.addWidget(self._apply_button)
+        output_layout.addLayout(action_layout)
+        layout.addWidget(output_card, 1, 1)
         return frame
+
+    def _build_option_card(self, title: str, subtitle: str) -> tuple[QFrame, QVBoxLayout]:
+        card = QFrame(self)
+        card.setObjectName("preprocessOptionCard")
+        layout = QVBoxLayout(card)
+        layout.setContentsMargins(16, 14, 16, 14)
+        layout.setSpacing(10)
+
+        title_label = QLabel(title, self)
+        title_label.setObjectName("preprocessCardTitle")
+        subtitle_label = QLabel(subtitle, self)
+        subtitle_label.setObjectName("preprocessCardSubtitle")
+        subtitle_label.setWordWrap(True)
+        layout.addWidget(title_label)
+        layout.addWidget(subtitle_label)
+        return card, layout
+
+    def _build_field_label(self, text: str) -> QLabel:
+        label = QLabel(text, self)
+        label.setObjectName("preprocessFieldLabel")
+        return label
 
     def _build_line_input(self, placeholder: str) -> QLineEdit:
         line_edit = QLineEdit(self)
@@ -493,9 +646,52 @@ class PreprocessTextScreen(QWidget, WorkflowNodeScreenSupport):
         )
         return line_edit
 
+    def _style_spinbox(self, spinbox: QSpinBox) -> QSpinBox:
+        spinbox.setStyleSheet(
+            """
+            QSpinBox {
+                background: #fffdf9;
+                color: #2b2b2b;
+                border: 1px solid #d1cabf;
+                border-radius: 8px;
+                padding: 6px 10px;
+                min-height: 24px;
+            }
+            QSpinBox::up-button,
+            QSpinBox::down-button {
+                background: #f3eadc;
+                border: none;
+                width: 18px;
+            }
+            QSpinBox::up-button {
+                border-top-right-radius: 8px;
+            }
+            QSpinBox::down-button {
+                border-bottom-right-radius: 8px;
+            }
+            """
+        )
+        spinbox.lineEdit().setStyleSheet("background: #fffdf9; color: #2b2b2b;")
+        return spinbox
+
     def _build_metadata_panel(self) -> QFrame:
         frame = QFrame(self)
         frame.setProperty("panel", True)
+        frame.setStyleSheet(
+            """
+            QFrame[panel="true"] {
+                background: #fffdf9;
+                border: 1px solid #e2d8c9;
+                border-radius: 14px;
+            }
+            QLabel[infoCard="true"] {
+                background: #fff8eb;
+                border: 1px solid #ecd8b1;
+                border-radius: 12px;
+                color: #3d3022;
+            }
+            """
+        )
         layout = QHBoxLayout(frame)
         layout.setContentsMargins(12, 12, 12, 12)
         layout.setSpacing(10)
@@ -518,7 +714,8 @@ class PreprocessTextScreen(QWidget, WorkflowNodeScreenSupport):
     def _build_metric_label(self, title: str, value: str) -> QLabel:
         label = QLabel(f"{title}\n{value}", self)
         label.setProperty("infoCard", True)
-        label.setStyleSheet("padding: 10px;")
+        label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        label.setStyleSheet("padding: 12px 10px; font-weight: 700;")
         return label
 
     def _build_table_panel(self) -> QFrame:
@@ -527,6 +724,10 @@ class PreprocessTextScreen(QWidget, WorkflowNodeScreenSupport):
         layout = QVBoxLayout(frame)
         layout.setContentsMargins(12, 12, 12, 12)
         layout.setSpacing(8)
+
+        table_header = QLabel("Document Preview", self)
+        table_header.setStyleSheet("font-size: 12pt; font-weight: 800; color: #30271d;")
+        layout.addWidget(table_header)
 
         self._status_label = QLabel("", self)
         self._status_label.setProperty("muted", True)
@@ -549,7 +750,14 @@ class PreprocessTextScreen(QWidget, WorkflowNodeScreenSupport):
         self._table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self._table.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
         self._table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
-        self._table.horizontalHeader().setStretchLastSection(True)
+        header = self._table.horizontalHeader()
+        header.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+        header.setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
+        header.setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)
+        header.setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(5, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(6, QHeaderView.ResizeMode.ResizeToContents)
         layout.addWidget(self._table, 1)
         return frame
 
@@ -620,7 +828,9 @@ class PreprocessTextScreen(QWidget, WorkflowNodeScreenSupport):
             status = "Input corpus is connected but empty."
         else:
             status = "Connect a Corpus input to preprocess documents."
-        self._status_label.setText(status + " " + self._pipeline_summary(options))
+        pipeline_summary = self._pipeline_summary(options)
+        self._status_label.setText(status + " " + pipeline_summary)
+        self._pipeline_label.setText(self._pipeline_display_summary(options))
 
         self._table.setRowCount(len(self._original_documents))
         document_pairs = zip(self._original_documents, self._processed_documents)
@@ -656,6 +866,27 @@ class PreprocessTextScreen(QWidget, WorkflowNodeScreenSupport):
         if options.ngram_min != 1 or options.ngram_max != 1:
             steps.append(f"n-grams={options.ngram_min}-{options.ngram_max}")
         return "Pipeline: " + ", ".join(steps) + "."
+
+    def _pipeline_display_summary(self, options: PreprocessOptions) -> str:
+        steps: list[str] = []
+        if options.lowercase:
+            steps.append("lowercase")
+        if options.strip_html:
+            steps.append("HTML")
+        if options.remove_urls:
+            steps.append("URLs")
+        if options.remove_accents:
+            steps.append("accents")
+        if options.remove_punctuation:
+            steps.append("punctuation")
+        if options.remove_numbers:
+            steps.append("numbers")
+        steps.append(options.tokenizer)
+        if options.remove_stopwords:
+            steps.append("stopwords")
+        if options.ngram_min != 1 or options.ngram_max != 1:
+            steps.append(f"{options.ngram_min}-{options.ngram_max} grams")
+        return "Pipeline: " + " -> ".join(steps)
 
     def _set_item(self, row: int, column: int, text: str) -> None:
         self._table.setItem(row, column, QTableWidgetItem(text))
