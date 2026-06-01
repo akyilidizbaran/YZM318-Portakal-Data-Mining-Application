@@ -166,18 +166,18 @@ PERSON_A_TEXT_MINING_WIDGETS = [
 
 PERSON_A_TEXT_MINING_ICON_NAMES = {
     "text-corpus": "text_corpus",
-    "text-corpus-viewer": "text_corpus",
+    "text-corpus-viewer": "text_corpus_viewer",
     "text-import-documents": "text_import_documents",
     "text-create-corpus": "text_create_corpus",
     "text-preprocess": "text_preprocess",
     "text-bag-of-words": "text_bag_of_words",
-    "text-statistics": "stats",
-    "text-word-list": "text_bag_of_words",
-    "text-word-cloud": "text_mining",
-    "text-extract-keywords": "text_bag_of_words",
-    "text-sentiment-analysis": "stats",
-    "text-topic-modelling": "text_mining",
-    "text-document-map": "mds",
+    "text-statistics": "text_statistics",
+    "text-word-list": "text_word_list",
+    "text-word-cloud": "text_word_cloud",
+    "text-extract-keywords": "text_extract_keywords",
+    "text-sentiment-analysis": "text_sentiment_analysis",
+    "text-topic-modelling": "text_topic_modelling",
+    "text-document-map": "text_document_map",
 }
 
 REMOVED_PERSON_A_SOURCE_WIDGET_IDS = {
