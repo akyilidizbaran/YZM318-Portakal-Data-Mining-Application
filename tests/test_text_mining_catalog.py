@@ -129,7 +129,22 @@ from portakal_app.ui.screens.text_statistics_screen import (
     TextStatisticsScreen,
     summarize_text_statistics,
 )
-from portakal_app.ui.screens.sentiment_analysis_screen import SentimentAnalysisScreen, analyze_sentiment
+from portakal_app.ui.screens.sentiment_analysis_screen import (
+    METHOD_CUSTOM,
+    METHOD_LILAH,
+    METHOD_LIU_HU,
+    METHOD_SENTIART,
+    METHOD_VADER,
+    SentimentAnalysisScreen,
+    SentimentCorpusDocument,
+    analyze_sentiment,
+    download_semantic_sentiment_resource,
+    load_semantic_sentiment_resource,
+    load_sentiment_dictionary,
+    semantic_sentiment_resource_url,
+    sentiment_resource_filename,
+    vader_scores,
+)
 from portakal_app.ui.screens.topic_modelling_screen import (
     METHOD_HDP,
     METHOD_LDA,
@@ -164,7 +179,7 @@ PERSON_A_TEXT_MINING_WIDGETS = [
     ("text-word-list", "Word List", ("Corpus",), ("Words",)),
     ("text-word-cloud", "Word Cloud", ("Corpus",), ()),
     ("text-extract-keywords", "Extract Keywords", ("Corpus",), ("Keywords",)),
-    ("text-sentiment-analysis", "Sentiment Analysis", ("Corpus",), ()),
+    ("text-sentiment-analysis", "Sentiment Analysis", ("Corpus",), ("Corpus",)),
     ("text-topic-modelling", "Topic Modelling", ("Corpus",), ("Topics",)),
     ("text-document-map", "Document Map", ("Corpus",), ()),
 ]
@@ -836,6 +851,293 @@ def test_sentiment_analysis_scores_positive_negative_and_neutral_documents(app):
     assert screen._table.item(1, 4).text() == "Negative"
     assert screen._neutral_count_label.text().endswith("1")
 
+
+def test_sentiment_analysis_liu_hu_outputs_tagged_corpus(app):
+    documents = (
+        CorpusDocument("Positive", "This movie was excellent and amazing."),
+        CorpusDocument("Negative", "This movie was terrible and boring."),
+    )
+    screen = SentimentAnalysisScreen()
+
+    screen.set_input_payload(WorkflowPayload("Corpus", documents))
+    payload = screen.current_output_payload()
+
+    assert payload.port_label == "Corpus"
+    assert isinstance(payload.value[0], SentimentCorpusDocument)
+    assert payload.value[0].title == "Positive"
+    assert payload.value[0].text == documents[0].text
+    assert payload.value[0].source == documents[0].source
+    assert payload.value[0].sentiment_features["liu_hu_score"] > 0
+    assert payload.value[1].sentiment_features["liu_hu_score"] < 0
+    assert payload.value[0].sentiment_features["liu_hu_label"] == "positive"
+    assert payload.value[1].sentiment_features["liu_hu_label"] == "negative"
+
+
+def test_sentiment_analysis_vader_outputs_expected_columns_and_negation(app):
+    positive = vader_scores("good")
+    negated = vader_scores("not good")
+    documents = (
+        CorpusDocument("Positive", "This movie was excellent and amazing."),
+        CorpusDocument("Negated", "The movie was not good."),
+    )
+    screen = SentimentAnalysisScreen()
+    screen._method_combo.setCurrentIndex(screen._method_combo.findData(METHOD_VADER))
+
+    screen.set_input_payload(WorkflowPayload("Corpus", documents))
+    payload = screen.current_output_payload()
+    first_features = payload.value[0].sentiment_features
+
+    assert negated["compound"] < positive["compound"]
+    assert {"vader_positive", "vader_negative", "vader_neutral", "vader_compound", "vader_label"} <= set(first_features)
+    assert payload.value[0].sentiment_features["vader_compound"] > 0
+    assert payload.value[1].sentiment_features["vader_compound"] < payload.value[0].sentiment_features["vader_compound"]
+    assert screen._table.horizontalHeaderItem(4).text() == "VADER Compound"
+
+
+def test_sentiment_analysis_custom_dictionary_scores_from_text_files(app, tmp_path):
+    positive_path = tmp_path / "positive.txt"
+    negative_path = tmp_path / "negative.txt"
+    positive_path.write_text("# positive words\nspark\nbright\n", encoding="utf-8")
+    negative_path.write_text("dull\nbroken\n", encoding="utf-8")
+    documents = (
+        CorpusDocument("Custom Positive", "spark bright spark"),
+        CorpusDocument("Custom Negative", "broken dull"),
+    )
+    screen = SentimentAnalysisScreen()
+    screen._method_combo.setCurrentIndex(screen._method_combo.findData(METHOD_CUSTOM))
+    screen._positive_dictionary_input.setText(str(positive_path))
+    screen._negative_dictionary_input.setText(str(negative_path))
+
+    screen.set_input_payload(WorkflowPayload("Corpus", documents))
+    payload = screen.current_output_payload()
+
+    assert load_sentiment_dictionary(str(positive_path)) == frozenset({"spark", "bright"})
+    assert payload.value[0].sentiment_features["custom_sentiment_score"] > 0
+    assert payload.value[1].sentiment_features["custom_sentiment_score"] < 0
+    assert payload.value[0].sentiment_features["custom_sentiment_label"] == "positive"
+
+
+def test_sentiment_analysis_semantic_resource_filenames_match_orange_text_style():
+    assert sentiment_resource_filename(METHOD_SENTIART, "en") == "SentiArt_EN.pickle"
+    assert sentiment_resource_filename(METHOD_SENTIART, "de") == "SentiArt_DE.pickle"
+    assert sentiment_resource_filename(METHOD_LILAH, "hr") == "LiLaH-HR.pickle"
+    assert sentiment_resource_filename(METHOD_LILAH, "nl") == "LiLaH-NL.pickle"
+    assert sentiment_resource_filename(METHOD_LILAH, "sl") == "LiLaH-SL.pickle"
+    assert semantic_sentiment_resource_url(METHOD_SENTIART, "en").endswith("/sentiart/SentiArt_EN.pickle")
+    assert semantic_sentiment_resource_url(METHOD_LILAH, "sl").endswith("/sentiment-lilah/LiLaH-SL.pickle")
+
+
+def test_sentiment_analysis_can_download_semantic_resource_to_local_cache(tmp_path, monkeypatch):
+    import pickle
+
+    class FakeResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return None
+
+        def read(self):
+            return pickle.dumps(
+                {
+                    "bright": {
+                        "sentiment": 1.0,
+                        "anger": 0.0,
+                        "fear": 0.0,
+                        "disgust": 0.0,
+                        "happiness": 0.8,
+                        "sadness": 0.0,
+                        "surprise": 0.2,
+                    }
+                }
+            )
+
+    def fake_urlopen(url, timeout):
+        assert url == semantic_sentiment_resource_url(METHOD_SENTIART, "en")
+        assert timeout == 45
+        return FakeResponse()
+
+    monkeypatch.setattr("portakal_app.ui.screens.sentiment_analysis_screen.urllib.request.urlopen", fake_urlopen)
+
+    path = download_semantic_sentiment_resource(METHOD_SENTIART, "en", tmp_path)
+    lexicon, loaded_path = load_semantic_sentiment_resource(METHOD_SENTIART, "en", tmp_path)
+
+    assert path == tmp_path / "SentiArt_EN.pickle"
+    assert loaded_path == path
+    assert lexicon["bright"]["sentiment"] == 1.0
+
+
+def test_sentiment_analysis_sentiart_scores_from_orange_compatible_pickle(app, tmp_path):
+    import pickle
+
+    resource_path = tmp_path / "SentiArt_EN.pickle"
+    resource_path.write_bytes(
+        pickle.dumps(
+            {
+                "bright": {
+                    "sentiment": 0.8,
+                    "anger": 0.1,
+                    "fear": 0.2,
+                    "disgust": 0.0,
+                    "happiness": 0.9,
+                    "sadness": 0.0,
+                    "surprise": 0.3,
+                },
+                "dull": {
+                    "sentiment": -0.6,
+                    "anger": 0.0,
+                    "fear": 0.1,
+                    "disgust": 0.4,
+                    "happiness": 0.0,
+                    "sadness": 0.7,
+                    "surprise": 0.0,
+                },
+            }
+        )
+    )
+    documents = (
+        CorpusDocument("Positive", "bright bright"),
+        CorpusDocument("Negative", "dull"),
+    )
+    lexicon, loaded_path = load_semantic_sentiment_resource(METHOD_SENTIART, "en", tmp_path)
+    results = analyze_sentiment(documents, method=METHOD_SENTIART, semantic_lexicon=lexicon)
+    screen = SentimentAnalysisScreen()
+    screen._method_combo.setCurrentIndex(screen._method_combo.findData(METHOD_SENTIART))
+    screen._resource_directory_input.setText(str(tmp_path))
+
+    screen.set_input_payload(WorkflowPayload("Corpus", documents))
+    payload = screen.current_output_payload()
+
+    assert loaded_path == resource_path
+    assert results[0].columns["sentiart_sentiment"] == 0.8
+    assert payload.value[0].sentiment_features["sentiart_happiness"] == 0.9
+    assert payload.value[1].sentiment_features["sentiart_sentiment"] < 0
+    assert screen._table.horizontalHeaderItem(5).text() == "Happiness"
+
+
+def test_sentiment_analysis_lilah_scores_from_orange_compatible_pickle(app, tmp_path):
+    import pickle
+
+    resource_path = tmp_path / "LiLaH-SL.pickle"
+    resource_path.write_bytes(
+        pickle.dumps(
+            {
+                "veselje": {
+                    "Positive": 0.9,
+                    "Negative": 0.1,
+                    "Anger": 0.0,
+                    "Anticipation": 0.6,
+                    "Disgust": 0.0,
+                    "Fear": 0.0,
+                    "Joy": 0.8,
+                    "Sadness": 0.0,
+                    "Surprise": 0.2,
+                    "Trust": 0.7,
+                },
+                "slabo": {
+                    "Positive": 0.1,
+                    "Negative": 0.8,
+                    "Anger": 0.3,
+                    "Anticipation": 0.0,
+                    "Disgust": 0.5,
+                    "Fear": 0.4,
+                    "Joy": 0.0,
+                    "Sadness": 0.8,
+                    "Surprise": 0.0,
+                    "Trust": 0.0,
+                },
+            }
+        )
+    )
+    documents = (
+        CorpusDocument("Positive", "veselje"),
+        CorpusDocument("Negative", "slabo"),
+    )
+    screen = SentimentAnalysisScreen()
+    screen._method_combo.setCurrentIndex(screen._method_combo.findData(METHOD_LILAH))
+    screen._language_combo.setCurrentIndex(screen._language_combo.findData("sl"))
+    screen._resource_directory_input.setText(str(tmp_path))
+
+    screen.set_input_payload(WorkflowPayload("Corpus", documents))
+    payload = screen.current_output_payload()
+
+    assert resource_path.exists()
+    assert payload.value[0].sentiment_features["lilah_positive"] == 0.9
+    assert payload.value[0].sentiment_features["lilah_joy"] == 0.8
+    assert payload.value[1].sentiment_features["lilah_negative"] == 0.8
+    assert payload.value[1].sentiment_features["lilah_label"] == "negative"
+    assert screen._table.horizontalHeaderItem(10).text() == "Trust"
+
+
+def test_sentiment_analysis_missing_semantic_resource_does_not_crash(app, tmp_path):
+    documents = (CorpusDocument("Unknown", "plain unmatched text"),)
+    screen = SentimentAnalysisScreen()
+    screen._method_combo.setCurrentIndex(screen._method_combo.findData(METHOD_SENTIART))
+    screen._resource_directory_input.setText(str(tmp_path))
+
+    screen.set_input_payload(WorkflowPayload("Corpus", documents))
+    payload = screen.current_output_payload()
+
+    assert payload.value[0].sentiment_features["sentiart_sentiment"] == 0.0
+    assert "resource unavailable" in screen._status_label.text()
+
+
+def test_sentiment_analysis_does_not_overwrite_existing_sentiment_feature(app):
+    document = SentimentCorpusDocument(
+        "Review",
+        "excellent movie",
+        "IMDB",
+        {"sentiment": "true_positive"},
+    )
+    screen = SentimentAnalysisScreen()
+
+    screen.set_input_payload(WorkflowPayload("Corpus", (document,)))
+    output = screen.current_output_payload().value[0]
+
+    assert output.sentiment_features["sentiment"] == "true_positive"
+    assert "liu_hu_score" in output.sentiment_features
+    assert "sentiment" in output.sentiment_features
+
+
+def test_sentiment_analysis_output_is_visible_in_corpus_viewer(app):
+    source = SentimentAnalysisScreen(
+        documents=(CorpusDocument("Review", "excellent amazing movie", "IMDB"),)
+    )
+    viewer = CorpusViewerScreen()
+
+    viewer.set_input_payload(source.current_output_payload())
+
+    headers = [viewer._table.horizontalHeaderItem(index).text() for index in range(viewer._table.columnCount())]
+    assert "liu_hu_score" in headers
+    assert "liu_hu_label" in headers
+    assert viewer._table.item(0, headers.index("liu_hu_label")).text() == "positive"
+
+
+def test_main_window_can_route_import_documents_to_sentiment_analysis_to_corpus_viewer(app, tmp_path):
+    path = tmp_path / "review.txt"
+    path.write_text("This movie was excellent and amazing.", encoding="utf-8")
+    window = MainWindow()
+    import_record = window._workspace.canvas.add_workflow_node("text-import-documents")
+    sentiment_record = window._workspace.canvas.add_workflow_node("text-sentiment-analysis")
+    viewer_record = window._workspace.canvas.add_workflow_node("text-corpus-viewer")
+    scene = window._workspace.canvas.workflow_scene
+
+    assert scene.create_connection(import_record.node_id, sentiment_record.node_id)
+    assert scene.create_connection(sentiment_record.node_id, viewer_record.node_id)
+
+    import_runtime = window._node_runtimes[import_record.node_id]
+    sentiment_runtime = window._node_runtimes[sentiment_record.node_id]
+    viewer_runtime = window._node_runtimes[viewer_record.node_id]
+    import_runtime.screen.import_paths((path,))
+    app.processEvents()
+
+    assert isinstance(sentiment_runtime.screen, SentimentAnalysisScreen)
+    assert isinstance(viewer_runtime.screen, CorpusViewerScreen)
+    assert sentiment_runtime.output_payload is not None
+    assert sentiment_runtime.output_payload.port_label == "Corpus"
+    headers = [viewer_runtime.screen._table.horizontalHeaderItem(index).text() for index in range(viewer_runtime.screen._table.columnCount())]
+    assert "liu_hu_score" in headers
+    assert viewer_runtime.screen._table.item(0, 0).text() == "review.txt"
 
 
 def test_topic_modelling_builds_topics_and_document_assignments(app):

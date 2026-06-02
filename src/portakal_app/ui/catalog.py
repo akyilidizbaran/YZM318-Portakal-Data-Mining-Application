@@ -1321,7 +1321,7 @@ def build_widgets() -> list[WidgetDefinition]:
             i18n.t("Score document sentiment with a lightweight lexicon."),
             "stats",
             _inputs("Corpus"),
-            (),
+            _outputs("Corpus"),
         ),
         WidgetDefinition(
             "text-topic-modelling",

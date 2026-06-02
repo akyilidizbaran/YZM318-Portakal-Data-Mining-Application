@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from collections.abc import Sequence
 
 from PySide6.QtCore import QSize
@@ -134,20 +135,46 @@ class CorpusViewerScreen(QWidget, WorkflowNodeScreenSupport):
             status = "Connect a Corpus input to inspect documents."
         self._status_label.setText(status)
 
+        extra_headers = self._sentiment_feature_headers()
+        headers = ["Title", "Source", "Text Preview", "Words", *extra_headers]
+        self._table.setColumnCount(len(headers))
+        self._table.setHorizontalHeaderLabels(headers)
         self._table.setRowCount(len(self._documents))
         for row, document in enumerate(self._documents):
             self._set_item(row, 0, document.title)
             self._set_item(row, 1, document.source)
             self._set_item(row, 2, preview_text(document.text))
             self._set_item(row, 3, str(count_words(document.text)))
+            features = self._sentiment_features(document)
+            for column, header in enumerate(extra_headers, start=4):
+                self._set_item(row, column, str(features.get(header, "")))
         self._table.resizeColumnsToContents()
 
     def _set_item(self, row: int, column: int, text: str) -> None:
         self._table.setItem(row, column, QTableWidgetItem(text))
 
+    def _sentiment_feature_headers(self) -> list[str]:
+        headers: list[str] = []
+        for document in self._documents:
+            for key in self._sentiment_features(document):
+                if key not in headers:
+                    headers.append(str(key))
+        return headers
+
+    def _sentiment_features(self, document: CorpusDocument) -> Mapping[str, object]:
+        features = getattr(document, "sentiment_features", {})
+        return features if isinstance(features, Mapping) else {}
+
     def data_preview_snapshot(self) -> dict[str, object]:
+        extra_headers = self._sentiment_feature_headers()
         rows = [
-            [document.title, document.source, preview_text(document.text), str(count_words(document.text))]
+            [
+                document.title,
+                document.source,
+                preview_text(document.text),
+                str(count_words(document.text)),
+                *(str(self._sentiment_features(document).get(header, "")) for header in extra_headers),
+            ]
             for document in self._documents
         ]
         summary = summarize_corpus(self._documents)
@@ -157,6 +184,6 @@ class CorpusViewerScreen(QWidget, WorkflowNodeScreenSupport):
                 f"{summary.total_word_count} total words, "
                 f"{summary.average_words_per_document:.1f} average words/document"
             ),
-            "headers": ["Title", "Source", "Text Preview", "Words"],
+            "headers": ["Title", "Source", "Text Preview", "Words", *extra_headers],
             "rows": rows,
         }
