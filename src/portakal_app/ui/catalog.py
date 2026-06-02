@@ -1266,7 +1266,7 @@ def build_widgets() -> list[WidgetDefinition]:
             i18n.t("Convert a corpus into a document-term matrix."),
             "text_bag_of_words",
             _inputs("Corpus"),
-            _outputs("Data"),
+            _outputs("Corpus"),
         ),
         WidgetDefinition(
             "text-statistics",

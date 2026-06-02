@@ -17,6 +17,7 @@ from portakal_app.ui.icons import get_widget_icon
 from portakal_app.ui.main_window import MainWindow
 from portakal_app.ui.shell.widget_catalog import WidgetCatalogButton
 from portakal_app.ui.screens.bag_of_words_screen import (
+    BagOfWordsCorpus,
     DF_IDF,
     DF_SMOOTH_IDF,
     NORM_L1,
@@ -129,7 +130,15 @@ from portakal_app.ui.screens.text_statistics_screen import (
     summarize_text_statistics,
 )
 from portakal_app.ui.screens.sentiment_analysis_screen import SentimentAnalysisScreen, analyze_sentiment
-from portakal_app.ui.screens.topic_modelling_screen import TopicModellingScreen, build_topic_model
+from portakal_app.ui.screens.topic_modelling_screen import (
+    METHOD_HDP,
+    METHOD_LDA,
+    METHOD_LSI,
+    METHOD_NMF,
+    TopicModellingScreen,
+    build_topic_model,
+    topic_documents_from_payload,
+)
 from portakal_app.ui.screens.wikipedia_screen import (
     WikipediaScreen,
     build_wikipedia_search_url,
@@ -150,7 +159,7 @@ PERSON_A_TEXT_MINING_WIDGETS = [
     ("text-import-documents", "Import Documents", (), ("Corpus",)),
     ("text-create-corpus", "Create Corpus", (), ("Corpus",)),
     ("text-preprocess", "Preprocess Text", ("Corpus",), ("Corpus",)),
-    ("text-bag-of-words", "Bag of Words", ("Corpus",), ("Data",)),
+    ("text-bag-of-words", "Bag of Words", ("Corpus",), ("Corpus",)),
     ("text-statistics", "Statistics", ("Corpus",), ()),
     ("text-word-list", "Word List", ("Corpus",), ("Words",)),
     ("text-word-cloud", "Word Cloud", ("Corpus",), ()),
@@ -378,6 +387,23 @@ def test_main_window_can_open_bag_of_words_widget(app):
     window._show_widget("text-bag-of-words")
 
     assert isinstance(window._workspace.current_widget(), BagOfWordsScreen)
+
+
+def test_bag_of_words_outputs_corpus_payload_with_matrix_metadata(app):
+    documents = (
+        CorpusDocument("First", "apple apple banana"),
+        CorpusDocument("Second", "banana carrot"),
+    )
+    screen = BagOfWordsScreen(documents=documents)
+
+    payload = screen.current_output_payload()
+
+    assert payload.port_label == "Corpus"
+    assert isinstance(payload.value, BagOfWordsCorpus)
+    assert corpus_documents_from_payload(payload.value) == documents
+    assert payload.value.vocabulary == ("apple", "banana", "carrot")
+    assert payload.value.matrix == ((2.0, 1.0, 0.0), (0.0, 1.0, 1.0))
+    assert payload.value.matrix_kind == "count"
 
 
 def test_text_mining_statistics_widget_uses_real_screen(app):
@@ -811,6 +837,7 @@ def test_sentiment_analysis_scores_positive_negative_and_neutral_documents(app):
     assert screen._neutral_count_label.text().endswith("1")
 
 
+
 def test_topic_modelling_builds_topics_and_document_assignments(app):
     documents = (
         CorpusDocument("Fruit A", "apple banana fruit apple"),
@@ -829,6 +856,146 @@ def test_topic_modelling_builds_topics_and_document_assignments(app):
     assert screen._topics_table.rowCount() == 2
     assert screen._documents_table.rowCount() == 3
     assert screen.current_output_payload().port_label == "Topics"
+
+
+def topic_modelling_documents() -> tuple[CorpusDocument, ...]:
+    return (
+        CorpusDocument("Business A", "market company profit revenue shares"),
+        CorpusDocument("Business B", "company revenue market growth profit"),
+        CorpusDocument("Sport A", "team match player goal season"),
+        CorpusDocument("Sport B", "player team season match goal"),
+        CorpusDocument("Tech", "software microsoft browser internet security"),
+        CorpusDocument("Politics", "government election minister policy vote"),
+    )
+
+
+def test_topic_modelling_lda_returns_requested_topics_and_structured_output(app):
+    documents = topic_modelling_documents()
+    result = build_topic_model(documents, method=METHOD_LDA, topic_count=3, top_words=4)
+    screen = TopicModellingScreen()
+    screen._method_combo.setCurrentIndex(screen._method_combo.findData(METHOD_LDA))
+    screen._topic_count_spinbox.setValue(3)
+    screen._top_words_spinbox.setValue(4)
+
+    screen.set_input_payload(WorkflowPayload("Corpus", documents))
+    payload = screen.current_output_payload()
+
+    assert len(result.topics) == 3
+    assert len(result.document_topics) == len(documents)
+    assert result.vocabulary_size > 0
+    assert "perplexity" in result.evaluation
+    assert payload.port_label == "Topics"
+    assert payload.value["topic_columns"] == ["Topic 1", "Topic 2", "Topic 3"]
+    assert len(payload.value["document_topics"]) == len(documents)
+
+
+def test_topic_modelling_lsi_returns_signed_topics_and_allows_negative_scores():
+    result = build_topic_model(
+        topic_modelling_documents(),
+        method=METHOD_LSI,
+        topic_count=3,
+        top_words=4,
+    )
+
+    assert len(result.topics) == 3
+    assert any("-" in topic.top_words for topic in result.topics)
+    assert any(score < 0 for row in result.topic_scores for score in row)
+    assert "Explained variance" in result.evaluation
+
+
+def test_topic_modelling_nmf_returns_non_negative_topic_weights():
+    result = build_topic_model(
+        topic_modelling_documents(),
+        method=METHOD_NMF,
+        topic_count=3,
+        top_words=4,
+    )
+
+    assert len(result.topics) == 3
+    assert result.topic_scores
+    assert all(score >= 0 for row in result.topic_scores for score in row)
+    assert "Reconstruction error" in result.evaluation
+
+
+def test_topic_modelling_hdp_is_hidden_but_backend_fallback_is_safe(app):
+    screen = TopicModellingScreen()
+
+    labels = [screen._method_combo.itemText(index) for index in range(screen._method_combo.count())]
+    result = build_topic_model(topic_modelling_documents(), method=METHOD_HDP)
+
+    assert METHOD_HDP not in [screen._method_combo.itemData(index) for index in range(screen._method_combo.count())]
+    assert all("HDP" not in label for label in labels)
+    assert result.topics == ()
+    assert "HDP is not available" in result.status
+
+
+def test_topic_modelling_coerces_document_like_payloads():
+    payload_value = {
+        "documents": [
+            {"title": "By Text", "text": "market company revenue", "category": "Business"},
+            {"name": "By Content", "content": "team match goal", "source": "Sport"},
+            {"id": "By Tokens", "tokens": ["software", "browser", "security"]},
+        ]
+    }
+
+    documents = topic_documents_from_payload(payload_value)
+
+    assert documents is not None
+    assert [document.title for document in documents] == ["By Text", "By Content", "By Tokens"]
+    assert documents[2].text == "software browser security"
+
+
+def test_topic_modelling_accepts_bag_of_words_like_documents_payload(app):
+    documents = topic_modelling_documents()
+    screen = TopicModellingScreen()
+
+    screen.set_input_payload(WorkflowPayload("Corpus", {"documents": documents}))
+
+    assert screen._topics_table.rowCount() > 0
+    assert screen.current_output_payload().value["topics"]
+
+
+def test_topic_modelling_reuses_bag_of_words_matrix_payload(app):
+    documents = topic_modelling_documents()
+    bow = BagOfWordsScreen(documents=documents)
+    topic = TopicModellingScreen()
+    topic._method_combo.setCurrentIndex(topic._method_combo.findData(METHOD_LDA))
+    topic._topic_count_spinbox.setValue(3)
+
+    topic.set_input_payload(bow.current_output_payload())
+    payload = topic.current_output_payload()
+
+    assert topic._documents_table.rowCount() == len(documents)
+    assert "Reused Bag of Words document-term matrix" in topic._status_label.text()
+    assert payload.value["matrix_source"] == "Reused Bag of Words document-term matrix."
+    assert payload.value["topic_columns"] == ["Topic 1", "Topic 2", "Topic 3"]
+
+
+def test_main_window_can_route_bag_of_words_output_to_topic_modelling(app):
+    window = MainWindow()
+    create_record = window._workspace.canvas.add_workflow_node("text-create-corpus")
+    bow_record = window._workspace.canvas.add_workflow_node("text-bag-of-words")
+    topics_record = window._workspace.canvas.add_workflow_node("text-topic-modelling")
+    scene = window._workspace.canvas.workflow_scene
+
+    assert scene.create_connection(create_record.node_id, bow_record.node_id)
+    assert scene.create_connection(bow_record.node_id, topics_record.node_id)
+
+    create_runtime = window._node_runtimes[create_record.node_id]
+    bow_runtime = window._node_runtimes[bow_record.node_id]
+    topics_runtime = window._node_runtimes[topics_record.node_id]
+    create_runtime.screen.add_document("Business", "market company profit revenue shares", "Manual")
+    create_runtime.screen.add_document("Sport", "team match player goal season", "Manual")
+    create_runtime.screen.add_document("Tech", "software browser internet security", "Manual")
+    app.processEvents()
+
+    assert isinstance(bow_runtime.screen, BagOfWordsScreen)
+    assert isinstance(topics_runtime.screen, TopicModellingScreen)
+    assert bow_runtime.output_payload is not None
+    assert bow_runtime.output_payload.port_label == "Corpus"
+    assert isinstance(bow_runtime.output_payload.value, BagOfWordsCorpus)
+    assert topics_runtime.screen._documents_table.rowCount() == 3
+    assert "Reused Bag of Words document-term matrix" in topics_runtime.screen._status_label.text()
 
 
 def test_topic_modelling_handles_too_small_corpus_without_crashing(app):

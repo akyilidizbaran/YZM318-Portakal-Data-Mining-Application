@@ -48,6 +48,53 @@ class BagOfWordsSummary:
     density: float = 0.0
 
 
+class DocumentTermMatrix(tuple):
+    def __getitem__(self, index):
+        value = super().__getitem__(index)
+        if isinstance(index, slice):
+            return DocumentTermMatrix(value)
+        return value
+
+    @property
+    def shape(self) -> tuple[int, int]:
+        row_count = len(self)
+        column_count = len(self[0]) if row_count else 0
+        return row_count, column_count
+
+    def tolist(self) -> list[list[float]]:
+        return [list(row) for row in self]
+
+
+@dataclass(frozen=True)
+class BagOfWordsCorpus(Sequence[CorpusDocument]):
+    documents: tuple[CorpusDocument, ...]
+    vocabulary: tuple[str, ...]
+    matrix: tuple[tuple[float, ...], ...]
+    local_weighting: str = TF_COUNT
+    global_weighting: str = DF_NONE
+    normalization: str = NORM_NONE
+
+    def __post_init__(self) -> None:
+        matrix = DocumentTermMatrix(tuple(tuple(float(value) for value in row) for row in self.matrix))
+        object.__setattr__(self, "matrix", matrix)
+
+    def __len__(self) -> int:
+        return len(self.documents)
+
+    def __getitem__(self, index):
+        return self.documents[index]
+
+    @property
+    def matrix_kind(self) -> str:
+        if (
+            self.local_weighting == TF_COUNT
+            and self.global_weighting == DF_NONE
+            and self.normalization == NORM_NONE
+        ):
+            return "count"
+        return "weighted"
+
+
 def tokenize_for_bow(text: str) -> tuple[str, ...]:
     normalized = re.sub(r"[^\w\s]", " ", text.lower())
     return tuple(normalized.split())
@@ -409,6 +456,19 @@ class BagOfWordsScreen(QWidget, WorkflowNodeScreenSupport):
         self._documents = () if documents is None else documents
         self._using_input_corpus = True
         self.apply_options()
+
+    def current_output_payload(self) -> WorkflowPayload:
+        return WorkflowPayload(
+            "Corpus",
+            BagOfWordsCorpus(
+                documents=self._documents,
+                vocabulary=self._vocabulary,
+                matrix=self._matrix,
+                local_weighting=self._term_frequency_combo.currentData() or TF_COUNT,
+                global_weighting=self._document_frequency_combo.currentData() or DF_NONE,
+                normalization=self._normalization_combo.currentData() or NORM_NONE,
+            ),
+        )
 
     def _render(self) -> None:
         summary = summarize_bow(self._documents, self._vocabulary, self._matrix)
