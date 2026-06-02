@@ -1986,6 +1986,32 @@ def test_main_window_can_route_statistics_output_to_corpus_widgets_and_data_tabl
     assert len(data_table_runtime.screen._rows) == 1
 
 
+def test_data_table_caps_long_corpus_columns_so_statistics_columns_stay_visible(app):
+    screen = DataTableScreen()
+    document = CorpusDocument(
+        "bbc_news_demo_25.csv row 1",
+        "title category text profit market " * 20,
+        "/Users/elifgungen/Downloads/data/bbc_news_demo_25.csv",
+        (
+            ("word_count", 120),
+            ("character_count", 780),
+            ("average_word_length", 5.4),
+        ),
+    )
+
+    screen.set_input_payload(WorkflowPayload("Corpus", (document,)))
+    app.processEvents()
+
+    widths = {
+        header: screen._table.columnWidth(index)
+        for index, header in enumerate(screen._headers)
+    }
+    assert widths["Source"] <= 120
+    assert widths["Text"] <= 130
+    assert widths["word_count"] <= 115
+    assert widths["character_count"] <= 115
+
+
 def test_main_window_can_route_corpus_viewer_output_to_word_cloud(app):
     window = MainWindow()
     create_record = window._workspace.canvas.add_workflow_node("text-create-corpus")
