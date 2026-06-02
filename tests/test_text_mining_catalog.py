@@ -159,6 +159,7 @@ from portakal_app.ui.screens.word_cloud_screen import (
     WordCloudScreen,
     cloud_word_frequencies,
     word_cloud_documents_from_dataset,
+    word_cloud_frequencies_from_dataset,
     word_cloud_text_column,
 )
 from portakal_app.ui.screens.word_list_screen import (
@@ -1223,6 +1224,36 @@ def test_word_cloud_builds_frequency_view_from_data_text_column(app):
     assert "Using text column 'Content'" in screen._status_label.text()
 
 
+def test_word_cloud_builds_frequency_view_from_data_word_count_columns(app):
+    dataset = GeneratedDatasetService().build_dataset(
+        pl.DataFrame(
+            {
+                "Word": ["profit", "market", "shares"],
+                "Frequency": [4, 2, 1],
+                "Source": ["Corpus + Custom", "Corpus", "Custom"],
+            }
+        ),
+        dataset_id="word-list-data",
+        display_name="Word List Data",
+        file_name="word-list-data.csv",
+        role_overrides={"Word": "meta", "Frequency": "feature", "Source": "meta"},
+    )
+    screen = WordCloudScreen()
+
+    screen.set_input_payload(WorkflowPayload("Data", dataset))
+    app.processEvents()
+
+    assert word_cloud_frequencies_from_dataset(dataset) == (
+        ("profit", 4),
+        ("market", 2),
+        ("shares", 1),
+    )
+    assert screen._table.rowCount() == 3
+    assert screen._table.item(0, 0).text() == "profit"
+    assert screen._table.item(0, 1).text() == "4"
+    assert "Using Word/Frequency columns" in screen._status_label.text()
+
+
 def test_word_cloud_handles_data_without_text_column_without_crashing(app):
     dataset = GeneratedDatasetService().build_dataset(
         pl.DataFrame({"Amount": [1, 2], "Score": [3.5, 4.5]}),
@@ -2152,6 +2183,55 @@ def test_word_list_data_channel_to_data_table_persists_when_default_output_port_
     assert snapshot["edges"][0]["channel"] == "Data"
     assert data_table_runtime.screen._headers == ["Word", "Frequency", "Documents", "Source"]
     assert {row[0] for row in data_table_runtime.screen._rows} == {"profit", "dollar", "market", "shares"}
+
+
+def test_main_window_can_route_word_list_data_table_output_to_word_cloud(app):
+    window = MainWindow()
+    word_list_record = window._workspace.canvas.add_workflow_node("text-word-list")
+    data_table_record = window._workspace.canvas.add_workflow_node("data-table")
+    word_cloud_record = window._workspace.canvas.add_workflow_node("text-word-cloud")
+    scene = window._workspace.canvas.workflow_scene
+    word_list_definition = window._widget_index["text-word-list"]
+    data_table_definition = window._widget_index["data-table"]
+    word_cloud_definition = window._widget_index["text-word-cloud"]
+    data_output_port_id = next(
+        port.id for port in word_list_definition.output_ports if port.label == "Data"
+    )
+    table_input_port_id = data_table_definition.input_ports[0].id
+    table_output_port_id = data_table_definition.output_ports[0].id
+    cloud_data_input_port_id = next(
+        port.id for port in word_cloud_definition.input_ports if port.label == "Data"
+    )
+
+    assert scene.create_connection(
+        word_list_record.node_id,
+        data_table_record.node_id,
+        source_port_id=data_output_port_id,
+        target_port_id=table_input_port_id,
+        channel="Data",
+    )
+    assert scene.create_connection(
+        data_table_record.node_id,
+        word_cloud_record.node_id,
+        source_port_id=table_output_port_id,
+        target_port_id=cloud_data_input_port_id,
+        channel="Data",
+    )
+
+    word_list_runtime = window._node_runtimes[word_list_record.node_id]
+    word_cloud_runtime = window._node_runtimes[word_cloud_record.node_id]
+    word_list_runtime.screen.add_custom_word("profit dollar market shares")
+    word_list_runtime.screen.set_update_mode("Ignore input")
+    app.processEvents()
+
+    assert word_cloud_runtime.screen._table.rowCount() == 4
+    assert word_cloud_runtime.screen._table.item(0, 0).text() in {
+        "dollar",
+        "market",
+        "profit",
+        "shares",
+    }
+    assert "Using Word/Frequency columns" in word_cloud_runtime.screen._status_label.text()
 
 
 def test_word_list_words_channel_can_feed_data_table_as_single_word_column(app):

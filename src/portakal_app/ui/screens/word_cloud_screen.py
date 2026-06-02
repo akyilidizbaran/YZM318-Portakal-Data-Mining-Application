@@ -96,6 +96,50 @@ def word_cloud_documents_from_dataset(dataset: DatasetHandle | None) -> tuple[Co
     return tuple(documents)
 
 
+def word_cloud_frequencies_from_dataset(dataset: DatasetHandle | None) -> tuple[tuple[str, int], ...]:
+    if dataset is None:
+        return ()
+
+    dataframe = dataset.dataframe
+    columns = list(dataframe.columns)
+    normalized = {column.lower().replace("_", " ").strip(): column for column in columns}
+    word_column = next(
+        (
+            normalized[name]
+            for name in ("word", "term", "token", "keyword")
+            if name in normalized
+        ),
+        "",
+    )
+    if not word_column:
+        return ()
+
+    frequency_column = next(
+        (
+            normalized[name]
+            for name in ("frequency", "count", "weight", "score")
+            if name in normalized
+        ),
+        "",
+    )
+    counter: Counter[str] = Counter()
+    for row in dataframe.iter_rows(named=True):
+        raw_word = row.get(word_column)
+        if raw_word is None:
+            continue
+        word = str(raw_word).strip().lower()
+        if not word:
+            continue
+        frequency = 1
+        if frequency_column:
+            try:
+                frequency = max(1, int(float(row.get(frequency_column) or 0)))
+            except (TypeError, ValueError):
+                frequency = 1
+        counter[word] += frequency
+    return tuple(sorted(counter.items(), key=lambda item: (-item[1], item[0])))
+
+
 def scaled_word_size(frequency: int, min_frequency: int, max_frequency: int) -> int:
     if max_frequency <= min_frequency:
         return 24
@@ -362,6 +406,7 @@ class WordCloudScreen(QWidget, WorkflowNodeScreenSupport):
         self._using_input_data = False
         self._data_text_column = ""
         self._data_status_message = ""
+        self._data_frequencies: tuple[tuple[str, int], ...] = ()
         self._frequencies: tuple[tuple[str, int], ...] = ()
         self._generated_dataset_service = GeneratedDatasetService()
         self._word_counts_dataset: DatasetHandle | None = None
@@ -472,6 +517,7 @@ class WordCloudScreen(QWidget, WorkflowNodeScreenSupport):
             self._using_input_data = False
             self._data_text_column = ""
             self._data_status_message = ""
+            self._data_frequencies = ()
             self.refresh_cloud()
             return
 
@@ -482,16 +528,23 @@ class WordCloudScreen(QWidget, WorkflowNodeScreenSupport):
             self._using_input_data = False
             self._data_text_column = ""
             self._data_status_message = ""
+            self._data_frequencies = ()
             self.refresh_cloud()
             return
 
-        if payload.port_label == "Data":
+        if payload.dataset is not None:
             dataset = payload.dataset
-            self._documents = word_cloud_documents_from_dataset(dataset)
+            self._data_frequencies = word_cloud_frequencies_from_dataset(dataset)
+            self._documents = () if self._data_frequencies else word_cloud_documents_from_dataset(dataset)
             self._using_input_corpus = False
             self._using_input_data = True
             self._data_text_column = word_cloud_text_column(dataset)
-            self._data_status_message = "" if self._data_text_column else "No text column found for Word Cloud."
+            if self._data_frequencies:
+                self._data_status_message = ""
+            elif self._data_text_column:
+                self._data_status_message = ""
+            else:
+                self._data_status_message = "No text column found for Word Cloud."
             self.refresh_cloud()
             return
 
@@ -500,10 +553,11 @@ class WordCloudScreen(QWidget, WorkflowNodeScreenSupport):
         self._using_input_data = False
         self._data_text_column = ""
         self._data_status_message = ""
+        self._data_frequencies = ()
         self.refresh_cloud()
 
     def refresh_cloud(self, *_args: object) -> tuple[tuple[str, int], ...]:
-        frequencies = cloud_word_frequencies(self._documents)
+        frequencies = self._data_frequencies if self._using_input_data and self._data_frequencies else cloud_word_frequencies(self._documents)
         if self._sort_combo.currentText() == "Alphabetical":
             frequencies = tuple(sorted(frequencies, key=lambda item: item[0]))
         self._frequencies = frequencies[: self._top_words_spinbox.value()]
@@ -563,6 +617,8 @@ class WordCloudScreen(QWidget, WorkflowNodeScreenSupport):
 
         if self._data_status_message:
             status = self._data_status_message
+        elif self._frequencies and self._using_input_data and self._data_frequencies:
+            status = "Input data is connected. Using Word/Frequency columns."
         elif self._frequencies and self._using_input_data:
             status = f"Input data is connected. Using text column '{self._data_text_column}'."
         elif self._using_input_data:
