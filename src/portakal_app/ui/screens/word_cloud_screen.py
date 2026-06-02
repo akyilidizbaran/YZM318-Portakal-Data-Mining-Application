@@ -54,6 +54,48 @@ def cloud_word_frequencies(documents: Sequence[CorpusDocument]) -> tuple[tuple[s
     return tuple(sorted(counter.items(), key=lambda item: (-item[1], item[0])))
 
 
+def word_cloud_text_column(dataset: DatasetHandle | None) -> str:
+    if dataset is None:
+        return ""
+    columns = list(dataset.dataframe.columns)
+    if not columns:
+        return ""
+    normalized = {column.lower().replace("_", " ").strip(): column for column in columns}
+    for exact_name in ("text", "content", "full content", "text preview", "preview", "body", "article", "message"):
+        if exact_name in normalized:
+            return normalized[exact_name]
+    for column in columns:
+        lowered = column.lower().replace("_", " ")
+        if any(part in lowered for part in ("text", "content", "preview", "body", "article", "message")):
+            return column
+    return ""
+
+
+def word_cloud_documents_from_dataset(dataset: DatasetHandle | None) -> tuple[CorpusDocument, ...]:
+    text_column = word_cloud_text_column(dataset)
+    if dataset is None or not text_column:
+        return ()
+
+    dataframe = dataset.dataframe
+    title_column = next(
+        (column for column in dataframe.columns if column.lower() in {"title", "name", "document"}),
+        "",
+    )
+    source_column = next(
+        (column for column in dataframe.columns if column.lower() in {"source", "path", "file"}),
+        "",
+    )
+    documents: list[CorpusDocument] = []
+    for index, row in enumerate(dataframe.iter_rows(named=True), start=1):
+        text = "" if row.get(text_column) is None else str(row.get(text_column))
+        if not text.strip():
+            continue
+        title = str(row.get(title_column) or f"Row {index}") if title_column else f"Row {index}"
+        source = str(row.get(source_column) or dataset.display_name) if source_column else dataset.display_name
+        documents.append(CorpusDocument(title, text, source))
+    return tuple(documents)
+
+
 def scaled_word_size(frequency: int, min_frequency: int, max_frequency: int) -> int:
     if max_frequency <= min_frequency:
         return 24
@@ -317,6 +359,9 @@ class WordCloudScreen(QWidget, WorkflowNodeScreenSupport):
         self._init_workflow_node_support()
         self._documents = tuple(() if documents is None else documents)
         self._using_input_corpus = documents is not None
+        self._using_input_data = False
+        self._data_text_column = ""
+        self._data_status_message = ""
         self._frequencies: tuple[tuple[str, int], ...] = ()
         self._generated_dataset_service = GeneratedDatasetService()
         self._word_counts_dataset: DatasetHandle | None = None
@@ -424,12 +469,37 @@ class WordCloudScreen(QWidget, WorkflowNodeScreenSupport):
         if payload is None:
             self._documents = ()
             self._using_input_corpus = False
+            self._using_input_data = False
+            self._data_text_column = ""
+            self._data_status_message = ""
             self.refresh_cloud()
             return
 
         documents = corpus_documents_from_payload(payload.value)
-        self._documents = () if documents is None else documents
-        self._using_input_corpus = True
+        if documents is not None:
+            self._documents = documents
+            self._using_input_corpus = True
+            self._using_input_data = False
+            self._data_text_column = ""
+            self._data_status_message = ""
+            self.refresh_cloud()
+            return
+
+        if payload.port_label == "Data":
+            dataset = payload.dataset
+            self._documents = word_cloud_documents_from_dataset(dataset)
+            self._using_input_corpus = False
+            self._using_input_data = True
+            self._data_text_column = word_cloud_text_column(dataset)
+            self._data_status_message = "" if self._data_text_column else "No text column found for Word Cloud."
+            self.refresh_cloud()
+            return
+
+        self._documents = ()
+        self._using_input_corpus = False
+        self._using_input_data = False
+        self._data_text_column = ""
+        self._data_status_message = ""
         self.refresh_cloud()
 
     def refresh_cloud(self, *_args: object) -> tuple[tuple[str, int], ...]:
@@ -491,12 +561,18 @@ class WordCloudScreen(QWidget, WorkflowNodeScreenSupport):
             f"{len(self._documents)} documents, {len(self._frequencies)} displayed words, {total_frequency} total frequency."
         )
 
-        if self._frequencies and self._using_input_corpus:
+        if self._data_status_message:
+            status = self._data_status_message
+        elif self._frequencies and self._using_input_data:
+            status = f"Input data is connected. Using text column '{self._data_text_column}'."
+        elif self._using_input_data:
+            status = "Input data is connected but contains no displayable words."
+        elif self._frequencies and self._using_input_corpus:
             status = "Input corpus is connected and word cloud is ready."
         elif self._using_input_corpus:
             status = "Input corpus is connected but contains no displayable words."
         else:
-            status = "Connect a Corpus input to build a word cloud."
+            status = "Connect a Corpus or Data input to build a word cloud."
         self._status_label.setText(status)
 
         self._cloud_canvas.set_words(

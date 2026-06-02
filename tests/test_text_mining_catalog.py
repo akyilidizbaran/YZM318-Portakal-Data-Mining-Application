@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
+import polars as pl
 import pytest
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -12,6 +13,7 @@ pytest.importorskip("PySide6")
 from PySide6.QtGui import QColor
 
 from portakal_app.app import create_application
+from portakal_app.data.services.generated_dataset_service import GeneratedDatasetService
 from portakal_app.models import WorkflowPayload
 from portakal_app.ui import i18n
 from portakal_app.ui.catalog import build_categories, build_widgets
@@ -153,7 +155,12 @@ from portakal_app.ui.screens.wikipedia_screen import (
     parse_wikipedia_summary_response,
     summarize_documents,
 )
-from portakal_app.ui.screens.word_cloud_screen import WordCloudScreen, cloud_word_frequencies
+from portakal_app.ui.screens.word_cloud_screen import (
+    WordCloudScreen,
+    cloud_word_frequencies,
+    word_cloud_documents_from_dataset,
+    word_cloud_text_column,
+)
 from portakal_app.ui.screens.word_list_screen import (
     WordListScreen,
     build_updated_word_list,
@@ -170,7 +177,7 @@ PERSON_A_TEXT_MINING_WIDGETS = [
     ("text-bag-of-words", "Bag of Words", ("Corpus",), ("Corpus",)),
     ("text-statistics", "Statistics", ("Corpus",), ("Corpus",)),
     ("text-word-list", "Word List", ("Corpus", "Words"), ("Words", "Selected Words", "Data")),
-    ("text-word-cloud", "Word Cloud", ("Corpus",), ("Corpus", "Selected Word", "Word Counts")),
+    ("text-word-cloud", "Word Cloud", ("Corpus", "Data"), ("Corpus", "Selected Word", "Word Counts")),
     ("text-extract-keywords", "Extract Keywords", ("Corpus",), ("Words",)),
     ("text-sentiment-analysis", "Sentiment Analysis", ("Corpus",), ("Corpus",)),
     ("text-topic-modelling", "Topic Modelling", ("Corpus",), ("Corpus", "Topic")),
@@ -445,7 +452,7 @@ def test_text_mining_word_cloud_widget_uses_real_screen(app):
     assert isinstance(screen, WordCloudScreen)
     assert not isinstance(screen, PlaceholderScreen)
     assert screen._table.rowCount() == 0
-    assert "Connect a Corpus input" in screen._status_label.text()
+    assert "Connect a Corpus or Data input" in screen._status_label.text()
 
 
 def test_main_window_can_open_word_cloud_widget(app):
@@ -1186,6 +1193,51 @@ def test_word_cloud_builds_frequency_view_from_corpus(app):
     assert screen._table.rowCount() == 3
     assert any(word.word == "apple" for word in screen._cloud_canvas.words())
     assert screen.current_output_payloads()["Word Counts"].dataset.dataframe.columns == ["Word", "Frequency"]
+
+
+def test_word_cloud_builds_frequency_view_from_data_text_column(app):
+    dataset = GeneratedDatasetService().build_dataset(
+        pl.DataFrame(
+            {
+                "Title": ["First", "Second"],
+                "Content": ["profit profit market", "market shares"],
+            }
+        ),
+        dataset_id="word-cloud-data",
+        display_name="Word Cloud Data",
+        file_name="word-cloud-data.csv",
+        role_overrides={"Title": "meta", "Content": "meta"},
+    )
+    screen = WordCloudScreen()
+
+    screen.set_input_payload(WorkflowPayload("Data", dataset))
+    app.processEvents()
+
+    assert word_cloud_text_column(dataset) == "Content"
+    assert [document.text for document in word_cloud_documents_from_dataset(dataset)] == [
+        "profit profit market",
+        "market shares",
+    ]
+    assert screen._table.rowCount() == 3
+    assert screen._table.item(0, 0).text() in {"market", "profit"}
+    assert "Using text column 'Content'" in screen._status_label.text()
+
+
+def test_word_cloud_handles_data_without_text_column_without_crashing(app):
+    dataset = GeneratedDatasetService().build_dataset(
+        pl.DataFrame({"Amount": [1, 2], "Score": [3.5, 4.5]}),
+        dataset_id="word-cloud-numeric-data",
+        display_name="Numeric Data",
+        file_name="word-cloud-numeric-data.csv",
+    )
+    screen = WordCloudScreen()
+
+    screen.set_input_payload(WorkflowPayload("Data", dataset))
+    app.processEvents()
+
+    assert screen._table.rowCount() == 0
+    assert screen._frequencies == ()
+    assert "No text column found for Word Cloud" in screen._status_label.text()
 
 
 def test_word_cloud_canvas_avoids_overlapping_word_rects(app):
@@ -2182,24 +2234,37 @@ def test_word_list_outputs_do_not_connect_to_corpus_inputs(app):
     )
     assert "provides Words" in window.state.status_message
     assert "expects Corpus" in window.state.status_message
-    assert not scene.create_connection(
+    assert scene.create_connection(
         word_list_record.node_id,
         word_cloud_record.node_id,
         source_port_id=data_output_port_id,
+        channel="Data",
     )
-    assert "provides Data" in window.state.status_message
-    assert "expects Corpus" in window.state.status_message
 
 
-def test_data_table_output_does_not_connect_to_word_cloud_corpus_input(app):
+def test_data_table_output_connects_to_word_cloud_data_input(app):
     window = MainWindow()
+    create_record = window._workspace.canvas.add_workflow_node("text-create-corpus")
     data_table_record = window._workspace.canvas.add_workflow_node("data-table")
     word_cloud_record = window._workspace.canvas.add_workflow_node("text-word-cloud")
     scene = window._workspace.canvas.workflow_scene
 
-    assert not scene.create_connection(data_table_record.node_id, word_cloud_record.node_id)
-    assert "provides Data" in window.state.status_message
-    assert "expects Corpus" in window.state.status_message
+    assert scene.create_connection(create_record.node_id, data_table_record.node_id)
+    assert scene.create_connection(data_table_record.node_id, word_cloud_record.node_id)
+
+    create_runtime = window._node_runtimes[create_record.node_id]
+    data_table_runtime = window._node_runtimes[data_table_record.node_id]
+    word_cloud_runtime = window._node_runtimes[word_cloud_record.node_id]
+    create_runtime.screen.add_document("Market", "profit profit market", "Manual")
+    app.processEvents()
+
+    snapshot = scene.snapshot()
+    word_cloud_definition = window._widget_index["text-word-cloud"]
+    data_input_port_id = next(
+        port.id for port in word_cloud_definition.input_ports if port.label == "Data"
+    )
+    assert snapshot["edges"][1]["target_port_id"] == data_input_port_id
+    assert word_cloud_runtime.screen._table.item(0, 0).text() == "profit"
 
 
 def test_main_window_can_route_preprocess_text_output_to_advanced_text_widgets(app):

@@ -1299,7 +1299,7 @@ def build_widgets() -> list[WidgetDefinition]:
             WordCloudScreen,
             i18n.t("Visualize frequent corpus words."),
             "text_word_cloud",
-            _inputs("Corpus"),
+            _inputs("Corpus", "Data"),
             _outputs("Corpus", "Selected Word", "Word Counts"),
             output_channels=("Corpus", "Selected Word", "Word Counts"),
         ),

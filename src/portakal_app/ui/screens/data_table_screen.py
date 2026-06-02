@@ -15,6 +15,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QPushButton,
+    QHeaderView,
     QSizePolicy,
     QSplitter,
     QStackedWidget,
@@ -44,6 +45,11 @@ TYPE_COLORS = {
 
 ROW_CLASS_COLORS = ["#eef1f4", "#f3eee6", "#ece8f7", "#eef7eb", "#f8eded"]
 DEFAULT_PAGE_SIZE = 500
+DEFAULT_COLUMN_WIDTH = 120
+MAX_TEXT_COLUMN_WIDTH = 220
+MAX_PATH_COLUMN_WIDTH = 180
+MAX_NUMERIC_COLUMN_WIDTH = 130
+MIN_COLUMN_WIDTH = 82
 
 
 @dataclass
@@ -92,6 +98,11 @@ class DataTableModel(QAbstractTableModel):
         if parent.isValid():
             return 0
         return len(self._headers)
+
+    def flags(self, index: QModelIndex) -> Qt.ItemFlag:  # noqa: N802
+        if not index.isValid():
+            return Qt.ItemFlag.NoItemFlags
+        return Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable
 
     def data(self, index: QModelIndex, role: int = Qt.ItemDataRole.DisplayRole) -> Any:
         if not index.isValid():
@@ -446,8 +457,12 @@ class DataTableScreen(QWidget, WorkflowNodeScreenSupport):
         self._table.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self._table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self._table.setSortingEnabled(True)
+        self._table.setTextElideMode(Qt.TextElideMode.ElideRight)
+        self._table.setHorizontalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
         self._table.verticalHeader().setDefaultSectionSize(30)
         self._table.verticalHeader().setMinimumSectionSize(28)
+        self._table.horizontalHeader().setMinimumSectionSize(MIN_COLUMN_WIDTH)
+        self._table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
         self._table.doubleClicked.connect(lambda index: self._table.selectRow(index.row()))
 
         self._model = DataTableModel(self._table)
@@ -487,8 +502,10 @@ class DataTableScreen(QWidget, WorkflowNodeScreenSupport):
         if self._dataset_handle is None:
             return None
         selected_row_indexes, selected_column_indexes = self._selected_selection_axes()
-        if not selected_row_indexes or not selected_column_indexes:
-            return None
+        if not selected_row_indexes:
+            return self._dataset_handle
+        if not selected_column_indexes:
+            return self._dataset_handle
         source_row_indexes = self._model.source_row_indexes_for_display_rows(selected_row_indexes)
         selected_headers = [self._headers[index] for index in selected_column_indexes]
         if not selected_headers:
@@ -686,13 +703,32 @@ class DataTableScreen(QWidget, WorkflowNodeScreenSupport):
         self._refresh_info()
         self._toggle_numeric_bars(self._visualize_checkbox.isChecked())
         self._refresh_row_colors()
-        self._table.resizeColumnsToContents()
-        self._table.horizontalHeader().setStretchLastSection(True)
+        self._apply_readable_column_widths()
+        self._table.horizontalScrollBar().setValue(0)
         self._restore_order_button.setEnabled(True)
         self._update_selection_summary()
 
         # Switch to data view
         self._stack.setCurrentIndex(2)
+
+    def _apply_readable_column_widths(self) -> None:
+        self._table.resizeColumnsToContents()
+        header = self._table.horizontalHeader()
+        header.setStretchLastSection(False)
+        for index, column in enumerate(self._columns):
+            current_width = self._table.columnWidth(index)
+            capped_width = min(max(current_width, MIN_COLUMN_WIDTH), self._max_column_width(column))
+            self._table.setColumnWidth(index, capped_width)
+
+    def _max_column_width(self, column: DataTableColumn) -> int:
+        name = column.name.lower().replace("_", " ")
+        if column.type_name == "numeric":
+            return MAX_NUMERIC_COLUMN_WIDTH
+        if any(part in name for part in ("path", "source", "file")):
+            return MAX_PATH_COLUMN_WIDTH
+        if any(part in name for part in ("text", "content", "preview", "body", "article", "message")):
+            return MAX_TEXT_COLUMN_WIDTH
+        return DEFAULT_COLUMN_WIDTH
 
     def _load_all_rows(self, dataset: DatasetHandle) -> list[list[str]]:
         """Load all rows page by page using PreviewService for responsiveness."""
